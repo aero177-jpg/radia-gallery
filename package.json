@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:android": "npm run build && npx cap sync android",
     "preview": "vite preview",
+    "cap:sync": "npx cap sync",
+    "cap:open:android": "npx cap open android",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -14,6 +17,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.758.0",
     "@aws-sdk/s3-request-presigner": "^3.989.0",
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/status-bar": "^8.0.1",
     "@fortawesome/fontawesome-svg-core": "^7.1.0",
     "@fortawesome/free-solid-svg-icons": "^7.1.0",
     "@fortawesome/react-fontawesome": "^3.1.1",
@@ -28,6 +34,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.1.0",
     "@vitejs/plugin-basic-ssl": "^2.1.0",
     "vite-plugin-pwa": "^1.2.0"
   }

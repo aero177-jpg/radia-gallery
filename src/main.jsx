@@ -6,12 +6,36 @@ import { render } from 'preact';
 
 import App from './components/App';
 import './style.css';
+import { useStore } from './store';
+import {
+  configureNativeStatusBarOverlay,
+  setNativeSystemUiHidden,
+} from './utils/nativeSystemUi';
 
 // Initialize storage sources from IndexedDB on startup
 import { initializeSources } from './storage/index.js';
 
+const setupNativeSystemUi = async () => {
+  await configureNativeStatusBarOverlay();
+};
+
+const bindNativeSystemUiToViewerState = () => {
+  const applyNativeUiState = () => {
+    const state = useStore.getState();
+    const shouldHideSystemUi = Boolean(state.viewerControlsDimmed || state.slideshowPlaying);
+    void setNativeSystemUiHidden(shouldHideSystemUi);
+  };
+
+  applyNativeUiState();
+
+  useStore.subscribe((state) => state.viewerControlsDimmed, applyNativeUiState);
+  useStore.subscribe((state) => state.slideshowPlaying, applyNativeUiState);
+};
+
 // Initialize storage sources first, then render the app
 const startApp = async () => {
+  await setupNativeSystemUi();
+
   try {
     const sources = await initializeSources();
     if (sources.length > 0) {
@@ -23,6 +47,8 @@ const startApp = async () => {
 
   // Render the Preact app after sources are loaded
   render(<App />, document.getElementById('app'));
+
+  bindNativeSystemUiToViewerState();
 };
 
 startApp();

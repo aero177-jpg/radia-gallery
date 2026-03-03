@@ -1051,7 +1051,7 @@ input[type="checkbox"]:disabled:checked {
   transform: translateX(0);
   opacity: 1;
   pointer-events: auto;
-  transition: transform 0.35s ease, opacity 0.35s ease;
+  transition: transform 0.24s ease, opacity 0.24s ease;
   z-index: 20;
   overflow-y: auto;
   overflow-x: hidden;
@@ -2565,6 +2565,7 @@ select option {
   height: 800px;
    width: 12vw;
   z-index: 9;
+  touch-action: manipulation;
 }
 
 
