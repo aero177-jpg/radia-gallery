@@ -1,0 +1,226 @@
+.frosted-hero {
+  position: relative;
+  width: 100%;
+  /* Use mask height for layout, not the full background height */
+  height: var(--mask-height, 130px);
+  overflow: visible;
+  background: #0a0a0f00;
+  border-radius: 18px;
+  isolation: isolate;
+  /* Initial blurred/hidden state - will transition to visible when class toggled */
+  filter: blur(14px);
+  opacity: 0;
+  transition: filter .6s ease-out 0.35s, opacity .3s ease-out 0.2s;
+}
+
+/* When mounted, add `.is-visible` to ease the blur and opacity into place */
+.frosted-hero.is-visible {
+  filter: blur(0);
+  opacity: 1;
+}
+
+/* Wrapper for all visual layers - positioned to overflow without affecting layout */
+.frosted-hero__layers {
+  position: absolute;
+  width: 100%;
+  height: var(--hero-height, 300px);
+  /* Center the large background vertically over the small logical container */
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+    /* filter: drop-shadow(0 0 4px rgba(59, 62, 92, 0.787)); */
+
+}
+
+/* Hidden source layer - not used visually */
+.frosted-hero__background {
+  display: none;
+}
+
+/* Blurred image clipped to text shape - this is the main visible effect */
+.frosted-hero__blur-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+
+  /* Mask set inline - clips image to text shape, kept static */
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+/* Fill layer: mask-mode luminance so the SVG fill (white) reveals the blurred image */
+/* .frosted-hero__blur-layer--fill {
+  -webkit-mask-mode: luminance;
+  mask-mode: luminance;
+  z-index: 1;
+} */
+
+/* Stroke layer: same mask but uses alpha mode to pick up the stroke; brighter for glass edge */
+.frosted-hero__blur-layer--stroke {
+     position: absolute;
+  z-index: 1;
+
+  /* Mask set inline - clips image to text shape, kept static */
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-mode: alpha;
+  mask-mode: alpha;
+  inset: -3px;
+}
+
+.frosted-hero__blur-layer--fill::before {
+  content: "";
+  position: absolute;
+  inset: -30px; /* oversize to avoid edge showing when rotated */
+  background-image: var(--bg);
+  background-size: 130% 220%;
+  filter: blur(40px) saturate(.8) brightness(1.8) contrast(1.2);
+  transform-origin: center;
+  will-change: transform, background-position;
+
+  /* default: none - animation applied per .frosted-hero--anim-* class */
+  animation: none;}
+/* The image is rendered in a pseudo-element so we can rotate it independently from the mask */
+
+
+.frosted-hero__blur-layer--stroke::before {
+  content: "";
+  position: absolute;
+  inset: -30px; /* oversize to avoid edge showing when rotated */
+  background-image: var(--bg);
+  background-size: 130% 220%;
+  filter: blur(40px) saturate(.5) brightness(2.8) contrast(1.4);
+  transform-origin: center;
+  will-change: transform, background-position;
+
+  /* default: none - animation applied per .frosted-hero--anim-* class */
+  animation: none;
+}
+
+
+/* rotate: stronger rotation + pan */
+.frosted-hero--anim-rotate .frosted-hero__blur-layer::before {
+  animation: frosted-pan 40s ease-in-out infinite alternate-reverse, frosted-rotate 30s ease-in-out 0s infinite reverse;
+}
+.frosted-hero--anim-rotate .frosted-hero__blur-layer--stroke::before {
+  animation: frosted-pan 40s ease-in-out .3s infinite alternate-reverse, frosted-rotate 30s ease-in-out 0s infinite reverse;
+}
+
+
+
+/* ----------------------------------------------------------------- */
+
+/* pan: background panning with a tiny slow rotation */
+.frosted-hero--anim-pan .frosted-hero__blur-layer::before {
+  animation: frosted-pan 1s ease-in-out 0s infinite reverse, frosted-rotate-slow 4s linear 0s infinite;
+}
+/* stroke offset for refraction effect */
+.frosted-hero--anim-pan .frosted-hero__blur-layer--stroke::before {
+  animation: frosted-pan 0s ease-in-out 0.6s infinite reverse, frosted-rotate-slow 14s linear 0.15s infinite;
+}
+/* random: pan + slow rotation + jitter */
+.frosted-hero--anim-random .frosted-hero__blur-layer::before {
+  animation: frosted-pan 3.6s cubic-bezier(.2,.8,.3,.9) 0s infinite, frosted-rotate-slow 22s linear 0s infinite, frosted-jitter 6s steps(6, end) 0s infinite;
+}
+.frosted-hero--anim-random .frosted-hero__blur-layer--stroke::before {
+  animation: frosted-pan 3.6s cubic-bezier(.2,.8,.3,.9) 0.12s infinite, frosted-rotate-slow 22s linear 0.12s infinite, frosted-jitter 6s steps(6, end) 0.12s infinite;
+}
+
+/* off: no motion */
+.frosted-hero--anim-off .frosted-hero__blur-layer::before {
+  animation: none;
+}
+.frosted-hero--anim-off .frosted-hero__blur-layer--stroke::before {
+  animation: none;
+}
+
+
+
+
+/* Semi-transparent tint over the blurred text for glass effect */
+.frosted-hero__glass-tint {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.08);
+  z-index: 3;
+
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+/* SVG layer for optional text stroke outline */
+.frosted-hero__stroke-svg {
+  position: absolute;
+  inset: 20px;
+  width: 100%;
+  height: 100%;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.frosted-hero__text-stroke {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.25);
+  stroke-width: 1;
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+@keyframes frosted-pan {
+  0% {
+    background-position: 10% 10%;
+  }
+
+  100% {
+    background-position: 500% 200%;
+  }
+}
+
+@keyframes frosted-rotate {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.02);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+/* Subtle slow rotation that alternates to avoid perfect repetition */
+@keyframes frosted-rotate-slow {
+  0% {
+    transform: rotate(-4deg) scale(1);
+  }
+  50% {
+    transform: rotate(4deg) scale(1.015);
+  }
+  100% {
+    transform: rotate(-4deg) scale(1);
+  }
+}
+
+/* Jitter pseudo-random motion (stepped for a choppy effect) */
+@keyframes frosted-jitter {
+  0% { transform: translate(0px, 0px) rotate(0deg); }
+  25% { transform: translate(-4px, 2px) rotate(-0.6deg); }
+  50% { transform: translate(3px, -3px) rotate(0.8deg); }
+  75% { transform: translate(-2px, 4px) rotate(-0.4deg); }
+  100% { transform: translate(0px, 0px) rotate(0deg); }
+}
+
+
+

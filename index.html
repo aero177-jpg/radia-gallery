@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" >
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0c0d10" />
+    <meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#0c0d10" media="(prefers-color-scheme: light)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Radia" />
+    <link rel="apple-touch-icon" href="%BASE_URL%radiaIcon_512.png" />
+    <link rel="icon" href="%BASE_URL%favicon.ico" />
+    <title>Radia gallery</title>
+    <!-- Critical inline background to prevent white flash before stylesheet loads -->
+    <style>
+      html, body {
+        margin: 0;
+        background: #0c0d10;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
