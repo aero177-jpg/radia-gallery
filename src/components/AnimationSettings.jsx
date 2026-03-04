@@ -6,13 +6,13 @@
 
 import { useCallback } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronDown, faRotateRight, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown, faRotateRight } from '@fortawesome/free-solid-svg-icons';
 import { useStore } from '../store';
 import { setLoadAnimationEnabled, setLoadAnimationIntensity, setLoadAnimationDirection, startLoadZoomAnimation } from '../customAnimations';
 import { saveAnimationSettings, savePreviewBlob, saveCustomAnimationSettings, saveViewCustomAnimationSettings } from '../fileStorage';
 import { scene, renderer, composer, THREE, currentMesh } from '../viewer';
 import { updateCustomAnimationInCache, clearCustomAnimationInCache, updateViewCustomAnimationInCache, clearViewCustomAnimationInCache } from '../splatManager';
-import { startSlideshow, stopSlideshow, resetSlideshow } from '../slideshowController';
+
 
 const PREVIEW_TARGET_HEIGHT = 128;
 const PREVIEW_WEBP_QUALITY = 0.18;
@@ -125,7 +125,6 @@ function AnimationSettings() {
   const continuousMotionDuration = useStore((state) => state.continuousMotionDuration);
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
-  const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const slideshowContinuousMode = useStore((state) => state.slideshowContinuousMode);
   const continuousDollyZoom = useStore((state) => state.continuousDollyZoom);
   const slideshowDuration = useStore((state) => state.slideshowDuration);
@@ -212,7 +211,7 @@ function AnimationSettings() {
   }, [setContinuousMotionSizeStore]);
 
   const handleContinuousDurationChange = useCallback((e) => {
-    const value = Number(e.target.value);
+    const value = Number(e.target.value) + 1;
     setContinuousMotionDurationStore(value);
   }, [setContinuousMotionDurationStore]);
 
@@ -488,24 +487,6 @@ function AnimationSettings() {
           </select>
         </div> */}
 
-        {/* Slideshow play toggle */}
-        {/* <div class="control-row animate-toggle-row">
-          <span class="control-label">Slideshow Playing</span>
-          <label class="switch">
-            <input
-              type="checkbox"
-              checked={slideshowPlaying}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  startSlideshow();
-                } else {
-                  resetSlideshow();
-                }
-              }}
-            />
-            <span class="switch-track" aria-hidden="true" />
-          </label>
-        </div> */}
         {hasFileSlideshowOverride && (
           <div class="control-row" style={{ justifyContent: 'flex-end', paddingTop: '0', paddingBottom: '0' }}>
             <span class="tier-badge">Override Active</span>
@@ -604,10 +585,10 @@ function AnimationSettings() {
                 min="3"
                 max="20"
                 step="1"
-                value={Math.max(1, (continuousMotionDuration ?? 2) - 1)}
+                value={continuousMotionDuration - 1}
                 onInput={handleContinuousDurationChange}
               />
-              <span class="control-value">{Math.max(1, (continuousMotionDuration ?? 2) - 1)}s</span>
+              <span class="control-value">{continuousMotionDuration - 1}s</span>
             </div>
           </div>
         )}
@@ -629,33 +610,6 @@ function AnimationSettings() {
             </div>
           </div>
         )}
-
-        {/* Slideshow playback controls */}
-        <div class="control-row slideshow-controls">
-          <div style="width: 100%">
-            {slideshowPlaying ? (
-              <button
-                class="slideshow-btn stop-btn"
-                onClick={stopSlideshow}
-                title="Stop slideshow"
-                aria-label="Stop slideshow"
-              >
-                <FontAwesomeIcon icon={faStop} style={{ fontSize: "12px" }} />
-                <span>Stop</span>
-              </button>
-            ) : (
-              <button
-                class="slideshow-btn play-btn"
-                onClick={startSlideshow}
-                title="Start slideshow"
-                aria-label="Start slideshow"
-              >
-                <FontAwesomeIcon icon={faPlay} style={{ fontSize: "12px" }} />
-                <span>Play</span>
-              </button>
-            )}
-          </div>
-        </div>
 
         {/* Custom settings - only shown when style is 'custom' */}
         {animationIntensity === 'custom' && (

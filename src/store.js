@@ -87,9 +87,9 @@ const DEFAULT_UI_PREFS = {
     direction: 'left',
     slideMode: 'horizontal',
     transitionSpeed: 'default',
-    continuousMotionSize: 'large',
-    continuousMotionDuration: 7,
-    slideshowContinuousMode: false,
+    continuousMotionSize: 'small',
+    continuousMotionDuration: 5,
+    slideshowContinuousMode: true,
     continuousDollyZoom: false,
     slideshowDuration: 3,
     custom: {
@@ -308,16 +308,15 @@ export const useStore = create(
 
   // Animation settings
   animationEnabled: true,
-  animationIntensity: persistedUiPrefs.animation?.intensity ?? 'medium',
-  animationDirection: persistedUiPrefs.animation?.direction ?? 'left',
-  slideMode: persistedUiPrefs.animation?.slideMode ?? 'horizontal',
-  transitionSpeed: persistedUiPrefs.animation?.transitionSpeed ?? 'default',
-  continuousMotionSize: persistedUiPrefs.animation?.continuousMotionSize ?? 'large',
-  continuousMotionDuration: persistedUiPrefs.animation?.continuousMotionDuration ?? 7,
-  slideshowContinuousMode: persistedUiPrefs.animation?.slideshowContinuousMode ?? false,
-  continuousDollyZoom: persistedUiPrefs.animation?.continuousDollyZoom ?? false,
-  slideshowUseCustom: false,
-  slideshowDuration: persistedUiPrefs.animation?.slideshowDuration ?? 3,
+  animationIntensity: persistedUiPrefs.animation?.intensity ?? DEFAULT_UI_PREFS.animation.intensity,
+  animationDirection: persistedUiPrefs.animation?.direction ?? DEFAULT_UI_PREFS.animation.direction,
+  slideMode: persistedUiPrefs.animation?.slideMode ?? DEFAULT_UI_PREFS.animation.slideMode,
+  transitionSpeed: persistedUiPrefs.animation?.transitionSpeed ?? DEFAULT_UI_PREFS.animation.transitionSpeed,
+  continuousMotionSize: persistedUiPrefs.animation?.continuousMotionSize ?? DEFAULT_UI_PREFS.animation.continuousMotionSize,
+  continuousMotionDuration: persistedUiPrefs.animation?.continuousMotionDuration ?? DEFAULT_UI_PREFS.animation.continuousMotionDuration,
+  slideshowContinuousMode: persistedUiPrefs.animation?.slideshowContinuousMode ?? DEFAULT_UI_PREFS.animation.slideshowContinuousMode,
+  continuousDollyZoom: persistedUiPrefs.animation?.continuousDollyZoom ?? DEFAULT_UI_PREFS.animation.continuousDollyZoom,
+  slideshowDuration: persistedUiPrefs.animation?.slideshowDuration ?? DEFAULT_UI_PREFS.animation.slideshowDuration,
   slideshowPlaying: false,
   viewerControlsDimmed: false,
   
@@ -525,9 +524,6 @@ export const useStore = create(
   
 
 
-  /** Enables/disables custom slideshow transitions */
-  setSlideshowUseCustom: (enabled) => set({ slideshowUseCustom: enabled }),
-  
   /** Sets slideshow hold duration in seconds */
   setSlideshowDuration: (duration) => {
     set({ slideshowDuration: duration });
