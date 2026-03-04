@@ -33,13 +33,18 @@ const CONTINUOUS_ORBIT_ANGLE_DEG = 12;
 const CONTINUOUS_ORBIT_PAN_SCALE = 0.4;
 
 const CONTINUOUS_VERTICAL_ORBIT_DURATION = 10;
-const CONTINUOUS_VERTICAL_ORBIT_ANGLE_DEG = 12;
-const CONTINUOUS_VERTICAL_ORBIT_PAN_SCALE = 0.4;
+const CONTINUOUS_VERTICAL_ORBIT_ANGLE_DEG = 8;
+const CONTINUOUS_VERTICAL_ORBIT_PAN_SCALE = 0.25;
+
+// Ratio controlling how much of the vertical orbit travels below "home".
+// 1.0 = symmetric (same as horizontal), 0.0 = no downward travel at all.
+// Kept low to avoid exposing the underside of 3D scenes.
+const CONTINUOUS_VERTICAL_ORBIT_DOWNWARD_RATIO = 0.35;
 
 const CONTINUOUS_SIZE_SCALE = {
-  small: 0.45,
-  medium: 0.65,
-  large: 0.85,
+  small: 0.3,
+  medium: 0.5,
+  large: 0.65,
 };
 
 // ============================================================================
@@ -661,14 +666,21 @@ export const continuousVerticalOrbitSlideIn = (duration, amount, options = {}) =
     const durationSec = getContinuousDurationSeconds('continuous-orbit-vertical', CONTINUOUS_VERTICAL_ORBIT_DURATION);
     const motionScale = getContinuousSizeScale();
 
-    const orbitAngle = (Math.PI / 180) * CONTINUOUS_VERTICAL_ORBIT_ANGLE_DEG * motionScale;
-    const panAmount = distance * amount * CONTINUOUS_VERTICAL_ORBIT_PAN_SCALE * motionScale;
+    const baseOrbitAngle = (Math.PI / 180) * CONTINUOUS_VERTICAL_ORBIT_ANGLE_DEG * motionScale;
+    const basePanAmount = distance * amount * CONTINUOUS_VERTICAL_ORBIT_PAN_SCALE * motionScale;
 
-    const startTarget = currentTarget.clone().add(up.clone().multiplyScalar(panAmount));
-    const endTarget = currentTarget.clone().add(up.clone().multiplyScalar(-panAmount));
+    // Asymmetric: full travel above home (looking down at the scene),
+    // reduced travel below home to avoid exposing the underside.
+    const upAngle = baseOrbitAngle;
+    const downAngle = baseOrbitAngle * CONTINUOUS_VERTICAL_ORBIT_DOWNWARD_RATIO;
+    const upPan = basePanAmount;
+    const downPan = basePanAmount * CONTINUOUS_VERTICAL_ORBIT_DOWNWARD_RATIO;
+
+    const startTarget = currentTarget.clone().add(up.clone().multiplyScalar(upPan));
+    const endTarget = currentTarget.clone().add(up.clone().multiplyScalar(-downPan));
 
     const orbitOffset = new THREE.Vector3().subVectors(currentPosition, currentTarget);
-    const startOrbitOffset = orbitOffset.clone().applyAxisAngle(right, -orbitAngle);
+    const startOrbitOffset = orbitOffset.clone().applyAxisAngle(right, -upAngle);
     const startPosition = startTarget.clone().add(startOrbitOffset);
 
     continuousVerticalOrbitState = {};
@@ -688,7 +700,7 @@ export const continuousVerticalOrbitSlideIn = (duration, amount, options = {}) =
         ease: "none",
         onUpdate: () => {
           const currentTargetPos = startTarget.clone().lerp(endTarget, proxy.t);
-          const currentAngle = gsap.utils.interpolate(-orbitAngle, orbitAngle, proxy.t);
+          const currentAngle = gsap.utils.interpolate(-upAngle, downAngle, proxy.t);
           const currentOffset = orbitOffset.clone().applyAxisAngle(right, currentAngle);
           camera.position.copy(currentTargetPos).add(currentOffset);
           controls.target.copy(currentTargetPos);
