@@ -276,15 +276,29 @@ const calculateSlideGeometry = (mode, direction, amount, isSlideOut) => {
     }
 
     case 'vertical': {
-      const vPanSign = isSlideOut
-        ? (direction === 'next' ? -1 : 1)
-        : (direction === 'next' ? 1 : -1);
-      const vPanAmount = distance * amount * 0.6 * vPanSign;
-      const vPanOffset = up.clone().multiplyScalar(vPanAmount);
-      offsetPosition = currentPosition.clone().add(vPanOffset);
-      offsetTarget = currentTarget.clone().add(vPanOffset);
-      orbitAxis = right;
-      orbitAngle = (Math.PI / 180) * 4 * (direction === 'next' ? (isSlideOut ? 1 : -1) : (isSlideOut ? -1 : 1));
+      if (isSlideOut) {
+        // Slide-out: reduce orbit to avoid exposing the underside of the
+        // scene, reduce panning, and push the camera forward (zoom in) to
+        // sell motion despite the limited vertical range.
+        const vPanSign = direction === 'next' ? -1 : 1;
+        const vPanAmount = distance * amount * 0.2 * vPanSign; // reduced pan
+        const vPanOffset = up.clone().multiplyScalar(vPanAmount);
+        // Subtle zoom-in along the forward axis
+        const zoomPush = forward.clone().multiplyScalar(distance * amount * 0.1);
+        offsetPosition = currentPosition.clone().add(vPanOffset).add(zoomPush);
+        offsetTarget = currentTarget.clone().add(vPanOffset);
+        orbitAxis = right;
+        orbitAngle = (Math.PI / 180) * 2.5 * (direction === 'next' ? 1 : -1); // reduced from 4°
+      } else {
+        // Slide-in: keep normal vertical motion
+        const vPanSign = direction === 'next' ? 1 : -1;
+        const vPanAmount = distance * amount * 0.6 * vPanSign;
+        const vPanOffset = up.clone().multiplyScalar(vPanAmount);
+        offsetPosition = currentPosition.clone().add(vPanOffset);
+        offsetTarget = currentTarget.clone().add(vPanOffset);
+        orbitAxis = right;
+        orbitAngle = (Math.PI / 180) * 4 * (direction === 'next' ? -1 : 1);
+      }
       break;
     }
 
