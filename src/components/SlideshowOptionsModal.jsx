@@ -87,7 +87,7 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
   const setFileCustomAnimation = useStore((state) => state.setFileCustomAnimation);
 
   const handleContinuousDurationChange = useCallback((e) => {
-    const value = Number(e.target.value);
+    const value = Number(e.target.value) + 1;
     setContinuousMotionDurationStore(value);
   }, [setContinuousMotionDurationStore]);
 
@@ -235,10 +235,10 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
                   min="3"
                   max="20"
                   step="1"
-                  value={Math.max(1, (continuousMotionDuration ?? 2) - 1)}
+                  value={continuousMotionDuration - 1}
                   onInput={handleContinuousDurationChange}
                 />
-                <span class="control-value">{Math.max(1, (continuousMotionDuration ?? 2) - 1)}s</span>
+                <span class="control-value">{continuousMotionDuration - 1}s</span>
               </div>
             </div>
           ) : (

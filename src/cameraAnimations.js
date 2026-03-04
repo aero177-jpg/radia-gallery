@@ -12,9 +12,6 @@ import { cancelLoadZoomAnimation } from "./customAnimations.js";
 import { useStore } from "./store.js";
 import gsap from "gsap";
 
-// Re-export config & presets (public)
-export { SLIDESHOW_CONFIG, SLIDE_PRESETS } from "./slideConfig.js";
-
 // Re-export continuous cancel helpers (public)
 export {
   cancelContinuousZoomAnimation,
@@ -37,13 +34,9 @@ import {
   easingFunctions,
   clamp01,
   isContinuousMode,
-  SLIDESHOW_CONFIG,
   DEFAULT_CONFIG,
   resolveSlideOutOptions,
   resolveSlideInOptions,
-  computeSpeedScale,
-  createSlideInSpeedProfile,
-  createSlideOutSpeedProfile,
 } from "./slideConfig.js";
 
 import {
@@ -237,6 +230,11 @@ export const cancelSlideAnimation = () => {
   if (slideAnimationState?.resolveTimeoutId) {
     clearTimeout(slideAnimationState.resolveTimeoutId);
   }
+  // Resolve the pending promise so callers (e.g. loadSplatFile) unblock
+  // instead of hanging forever when a transition is cancelled mid-flight.
+  if (typeof slideAnimationState?.resolve === 'function') {
+    slideAnimationState.resolve();
+  }
   slideAnimationState = null;
 
   const viewerEl = document.getElementById('viewer');
@@ -345,14 +343,11 @@ export const slideOutAnimation = (direction, options = {}) => {
   return new Promise((resolve) => {
     const mode = options.mode ?? 'horizontal';
     const { duration, amount, fadeDelay } = resolveSlideOutOptions(mode, options);
-    const { slideshowPlaying, slideshowUseCustom, transitionSpeed } = getStoreState();
-    const useCustom = slideshowPlaying && slideshowUseCustom;
-    const config = useCustom ? SLIDESHOW_CONFIG.slideOut : DEFAULT_CONFIG.slideOut;
+    const { transitionSpeed } = getStoreState();
+    const config = DEFAULT_CONFIG.slideOut;
 
-    const baseDuration = useCustom ? config.totalDuration : duration / 1000;
-    const speedMultiplier = useCustom ? (config.speedMultiplier || 1) : 1;
-    const durationSec = baseDuration / speedMultiplier;
-    const baseFadeDelay = useCustom ? config.fadeDelay : fadeDelay;
+    const durationSec = duration / 1000;
+    const baseFadeDelay = fadeDelay;
     // Snappy: push fade-out trigger to 85% of the animation so content stays visible longer
     const actualFadeDelay = transitionSpeed === 'snappy' ? Math.max(baseFadeDelay, 0.85) : baseFadeDelay;
 
@@ -375,7 +370,7 @@ export const slideOutAnimation = (direction, options = {}) => {
         resolve();
       }, durationSec * 1000);
 
-      slideAnimationState = { fadeTimeoutId, resolveTimeoutId };
+      slideAnimationState = { fadeTimeoutId, resolveTimeoutId, resolve };
       return;
     }
 
@@ -385,17 +380,13 @@ export const slideOutAnimation = (direction, options = {}) => {
 
     const proxy = { t: 0 };
     let progress = 0;
-    let lastTime = 0;
-
-    const speedAt = useCustom ? createSlideOutSpeedProfile(config, durationSec) : null;
-    const speedScale = useCustom ? computeSpeedScale(speedAt, durationSec) : 1;
 
     const fadeTimeoutId = setTimeout(() => {
       if (!noFade && viewerEl) viewerEl.classList.add('slide-out');
       if (bgImageContainer) bgImageContainer.classList.remove('active');
     }, durationSec * actualFadeDelay * 1000);
 
-    slideAnimationState = { fadeTimeoutId };
+    slideAnimationState = { fadeTimeoutId, resolve };
 
     // Dolly-zoom: compute FOV endpoints and distance-compensation baseline
     let dollyBaseFov, dollyBaseDistance, dollyBaseDirection, dollyBaseTan, dollyStartFov, dollyEndFov;
@@ -416,15 +407,7 @@ export const slideOutAnimation = (direction, options = {}) => {
       ease: "none",
       onUpdate: () => {
         const t = proxy.t;
-
-        if (useCustom) {
-          const dt = t - lastTime;
-          lastTime = t;
-          progress += speedAt(t) * speedScale * dt;
-          progress = clamp01(progress);
-        } else {
-          progress = gsap.parseEase(config.ease || "power2.in")(clamp01(t / durationSec));
-        }
+        progress = gsap.parseEase(config.ease || "power2.in")(clamp01(t / durationSec));
 
         if (mode === 'dolly-zoom') {
           // Animate FOV with distance compensation to keep subject size
@@ -473,13 +456,9 @@ export const slideInAnimation = (direction, options = {}) => {
   return new Promise((resolve) => {
     const mode = options.mode ?? 'horizontal';
     const { duration, amount } = resolveSlideInOptions(mode, options);
-    const { slideshowPlaying, slideshowUseCustom } = getStoreState();
-    const useCustom = slideshowPlaying && slideshowUseCustom;
-    const config = useCustom ? SLIDESHOW_CONFIG.slideIn : DEFAULT_CONFIG.slideIn;
+    const config = DEFAULT_CONFIG.slideIn;
 
-    const baseDuration = useCustom ? config.totalDuration : duration / 1000;
-    const speedMultiplier = useCustom ? (config.speedMultiplier || 1) : 1;
-    const durationSec = baseDuration / speedMultiplier;
+    const durationSec = duration / 1000;
 
     cancelSlideAnimation();
 
@@ -559,6 +538,10 @@ export const slideInAnimation = (direction, options = {}) => {
     controls.update();
     forceRenderNow();
 
+    // Store resolve so cancelSlideAnimation can unblock callers if the
+    // slide-in is interrupted mid-flight (e.g. source change during transition).
+    slideAnimationState = { resolve };
+
     // Bundle CSS reveal + GSAP tween start so they can be deferred together
     // for snappy mode (GPU needs an extra frame to present the new content).
     const { transitionSpeed } = getStoreState();
@@ -578,10 +561,6 @@ export const slideInAnimation = (direction, options = {}) => {
 
       const proxy = { t: 0 };
       let progress = 0;
-      let lastTime = 0;
-
-      const speedAt = useCustom ? createSlideInSpeedProfile(config, durationSec) : null;
-      const speedScale = useCustom ? computeSpeedScale(speedAt, durationSec) : 1;
 
       // Delay the camera tween so motion starts when the content is partially
       // visible. Without this, power2.out rushes through most of its travel
@@ -596,15 +575,7 @@ export const slideInAnimation = (direction, options = {}) => {
         ease: "none",
         onUpdate: () => {
           const t = proxy.t;
-
-          if (useCustom) {
-            const dt = t - lastTime;
-            lastTime = t;
-            progress += speedAt(t) * speedScale * dt;
-            progress = clamp01(progress);
-          } else {
-            progress = gsap.parseEase(config.ease || "power2.out")(clamp01(t / durationSec));
-          }
+          progress = gsap.parseEase(config.ease || "power2.out")(clamp01(t / durationSec));
 
           if (mode === 'dolly-zoom') {
             // Animate FOV with distance compensation to keep subject size

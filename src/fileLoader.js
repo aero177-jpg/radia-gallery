@@ -64,6 +64,13 @@ export const setNavigationLocked = (locked) => {
   isNavigationLocked = locked;
 };
 
+/**
+ * Generation counter for loadSplatFile.  Incremented each time a new load
+ * begins so that stale/concurrent loads can detect they've been superseded
+ * and bail out early instead of corrupting camera state.
+ */
+let loadGeneration = 0;
+
 /** Track if this is the very first asset load (no previous mesh) */
 let hasLoadedFirstAsset = false;
 
@@ -564,7 +571,13 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   const hasFileOrSource = asset.file || (asset.sourceId && asset._remoteAsset);
   if (!hasFileOrSource) return;
 
+  // Stamp a generation so we can detect when a newer load has superseded this one
+  const thisGeneration = ++loadGeneration;
+
   await hydrateAssetPreviewFromStorage(asset);
+
+  // Bail out if a newer load started while we awaited preview hydration
+  if (loadGeneration !== thisGeneration) return;
 
   // Cancel any in-flight slide transitions before starting a new load
   // This prevents race conditions where previous animation state corrupts the new load
@@ -621,6 +634,10 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       return null;
     });
     const [, entry] = await Promise.all([slideOutPromise, prepPromise]);
+
+    // Bail out if a newer load superseded this one while we were transitioning
+    if (loadGeneration !== thisGeneration) return;
+
     if (entry) {
       applyIntrinsicsAspect(entry);
       aspectApplied = true;
@@ -722,6 +739,10 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
     const { cameraMetadata, storedSettings, focusDistanceOverride, formatLabel } = entry;
     const { views: customViews, selectedView } = await resolveAssetView(asset);
+
+    // Bail out if a newer load superseded this one while resolving views
+    if (loadGeneration !== thisGeneration) return;
+
     const hasCustomMetadata = Boolean(selectedView?.cameraPose);
 
     if (!cameraMetadata?.intrinsics) {
@@ -904,6 +925,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         preset: 'cached',
         amount: cachedSlideInAmount,
       });
+
+      // Bail out if a newer load superseded this one during the slide-in
+      if (loadGeneration !== thisGeneration) return;
       
       // Safety cleanup in case slideInAnimation didn't fully clean up
       const viewerEl = document.getElementById('viewer');
@@ -933,6 +957,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         applyDebugZoomOut();
       }, { animate: shouldAnimateCamera });
 
+      // Bail out if a newer load superseded this one during the camera animation
+      if (loadGeneration !== thisGeneration) return;
+
       if (hasCustomMetadata && !cameraMetadata?.intrinsics) {
         refreshSparkForCurrentView('post-camera-custom-view');
       }
@@ -955,6 +982,10 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
           preset: 'transition',
           amount: transitionSlideInAmount,
         });
+
+        // Bail out if a newer load superseded this one during the slide-in
+        if (loadGeneration !== thisGeneration) return;
+
         const viewerEl = document.getElementById('viewer');
         if (viewerEl) {
           viewerEl.classList.remove('slide-out');
@@ -1280,6 +1311,17 @@ const processEntries = async (entries) => {
  */
 export const handleMultipleFiles = async (files) => {
   if (!files || files.length === 0) return;
+
+  // Cancel in-flight transitions and release nav lock (same as loadFromStorageSource)
+  cleanupSlideTransitionState();
+  cancelContinuousZoomAnimation();
+  cancelContinuousDollyZoomAnimation();
+  cancelContinuousOrbitAnimation();
+  cancelContinuousVerticalOrbitAnimation();
+  clearContinuousHandoff();
+  isNavigationLocked = false;
+  ++loadGeneration;
+
   const store = getStoreState();
   store.clearActiveSource();
   const result = await setAssetListManager(files);
@@ -1682,6 +1724,29 @@ export const loadAssetByIndex = async (index) => {
  * @param {import('./storage/AssetSource.js').AssetSource} source
  */
 export const loadFromStorageSource = async (source, options = {}) => {
+  // Force-cancel any in-flight transitions and animations that might be
+  // running from a previous source.  Without this, a mid-transition
+  // loadNextAsset/loadPrevAsset keeps the navigation lock held forever
+  // (the cancelled animation's Promise never resolved before this fix),
+  // and the camera can be left in a mid-slide offset position.
+  cleanupSlideTransitionState();
+  cancelContinuousZoomAnimation();
+  cancelContinuousDollyZoomAnimation();
+  cancelContinuousOrbitAnimation();
+  cancelContinuousVerticalOrbitAnimation();
+  clearContinuousHandoff();
+
+  // Release the navigation lock in case a loadNext/loadPrev was in progress.
+  // Their finally{} blocks will also set this to false when they eventually
+  // unblock, but we need it cleared NOW so the new source's loadSplatFile
+  // and subsequent prev/next calls aren't blocked.
+  isNavigationLocked = false;
+
+  // Bump the load generation so any in-flight loadSplatFile calls from the
+  // old source bail out at their next checkpoint instead of continuing to
+  // apply stale camera/scene state.
+  ++loadGeneration;
+
   const store = getStoreState();
   const { preferredIndex } = options || {};
 
