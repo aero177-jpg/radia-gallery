@@ -46,7 +46,7 @@ import {
   cancelContinuousVerticalOrbitAnimation,
   clearContinuousHandoff,
 } from "./cameraAnimations.js";
-import { resolveSlideInOptions, resolveSlideOutOptions } from "./slideConfig.js";
+import { resolveSlideInOptions, resolveSlideOutOptions, computeSlideshowTimingExtension, createExtendedEaseIn, createExtendedEaseOut } from "./slideConfig.js";
 import { resetSlideshowTimer, restartContinuousIfPlaying } from "./slideshowController.js";
 import { isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode } from "./immersiveMode.js";
 import { applyIntrinsicsAspect, updateViewerAspectRatio, resize } from "./layout.js";
@@ -616,6 +616,14 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   // For transitions (slides or random asset clicks), start fade/slide-out and entry prep in parallel
   const transitionDirection = slideDirection ?? 'next';
   const shouldRunTransition = currentMesh && (slideDirection || forceFadeForNonSequential);
+
+  // Non-continuous slideshow: steal a fraction of hold time to stretch slide
+  // animations, adding perceived motion without requiring continuous mode.
+  const isNonContinuousSlideshow = store.slideshowPlaying && !store.slideshowContinuousMode;
+  const slideshowTimingExt = isNonContinuousSlideshow
+    ? computeSlideshowTimingExtension(store.slideshowDuration ?? 3)
+    : { extensionMs: 0, adjustedHoldMs: 0 };
+
   let preloadedEntry = null;
   if (shouldRunTransition) {
     const slideOutAmount = resolveSlideAmountWithPerFileRange(
@@ -624,11 +632,20 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       outgoingTransitionRange,
       'out',
     );
-    const slideOutPromise = slideOutAnimation(transitionDirection, {
+    const slideOutOpts = {
       mode: outgoingSlideMode,
       preset: 'transition',
       amount: slideOutAmount,
-    });
+    };
+    if (slideshowTimingExt.extensionMs > 0) {
+      const base = resolveSlideOutOptions(outgoingSlideMode, { preset: 'transition' });
+      const extDuration = base.duration + slideshowTimingExt.extensionMs;
+      slideOutOpts.duration = extDuration;
+      slideOutOpts.ease = createExtendedEaseIn(base.duration, extDuration);
+      // Push fadeDelay so fade aligns with the rush phase, not the drift.
+      slideOutOpts.fadeDelay = Math.min(0.85, 1 - (base.duration * 0.35) / extDuration);
+    }
+    const slideOutPromise = slideOutAnimation(transitionDirection, slideOutOpts);
     const prepPromise = entryPromise.catch((err) => {
       console.warn('Failed to preload during transition:', err);
       return null;
@@ -920,11 +937,18 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         resolvedTransitionRange,
         'in',
       );
-      await slideInAnimation(slideDirection, {
+      const cachedSlideInOpts = {
         mode: resolvedSlideMode,
         preset: 'cached',
         amount: cachedSlideInAmount,
-      });
+      };
+      if (slideshowTimingExt.extensionMs > 0) {
+        const base = resolveSlideInOptions(resolvedSlideMode, { preset: 'cached' });
+        const extDuration = base.duration + slideshowTimingExt.extensionMs;
+        cachedSlideInOpts.duration = extDuration;
+        cachedSlideInOpts.ease = createExtendedEaseOut(base.duration, extDuration);
+      }
+      await slideInAnimation(slideDirection, cachedSlideInOpts);
 
       // Bail out if a newer load superseded this one during the slide-in
       if (loadGeneration !== thisGeneration) return;
@@ -977,11 +1001,18 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
           'in',
         );
         // Bring content back with fade/slide-in after camera is set
-        await slideInAnimation(transitionDirection, {
+        const transitionSlideInOpts = {
           mode: resolvedSlideMode,
           preset: 'transition',
           amount: transitionSlideInAmount,
-        });
+        };
+        if (slideshowTimingExt.extensionMs > 0) {
+          const base = resolveSlideInOptions(resolvedSlideMode, { preset: 'transition' });
+          const extDuration = base.duration + slideshowTimingExt.extensionMs;
+          transitionSlideInOpts.duration = extDuration;
+          transitionSlideInOpts.ease = createExtendedEaseOut(base.duration, extDuration);
+        }
+        await slideInAnimation(transitionDirection, transitionSlideInOpts);
 
         // Bail out if a newer load superseded this one during the slide-in
         if (loadGeneration !== thisGeneration) return;
