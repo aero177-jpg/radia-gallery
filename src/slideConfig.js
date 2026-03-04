@@ -102,3 +102,87 @@ export const isContinuousMode = (mode) => (
   mode === 'continuous-orbit' ||
   mode === 'continuous-orbit-vertical'
 );
+
+// ============================================================================
+// Non-continuous slideshow timing extension
+// ============================================================================
+// When slideshow hold time is available, steal a fraction of it to stretch
+// the slide-out and slide-in animations. This adds perceived motion without
+// requiring continuous mode.
+//
+// MAX_EXTENSION_FRACTION: max share of hold time we'll steal (per phase).
+// MAX_EXTENSION_MS:       absolute cap so animations don't get absurdly long.
+// MIN_HOLD_TO_EXTEND:     minimum hold time (s) before we start extending.
+
+const MAX_EXTENSION_FRACTION = 0.50;
+const MAX_EXTENSION_MS = 5000;
+const MIN_HOLD_TO_EXTEND = 1.0;
+
+/**
+ * Compute how much extra duration (ms) to add to each slide phase (in or out)
+ * when non-continuous slideshow mode has spare hold time.
+ *
+ * Both phases get the same extension so the mirrored aesthetic is preserved.
+ *
+ * @param {number} holdTimeSec  – configured hold time in seconds
+ * @returns {{ extensionMs: number, adjustedHoldMs: number }}
+ *   extensionMs      – extra ms to add to EACH of slideIn and slideOut duration
+ *   adjustedHoldMs   – remaining hold time (ms) after both extensions are stolen
+ */
+export const computeSlideshowTimingExtension = (holdTimeSec) => {
+  if (!Number.isFinite(holdTimeSec) || holdTimeSec < MIN_HOLD_TO_EXTEND) {
+    return { extensionMs: 0, adjustedHoldMs: (holdTimeSec || 0) * 1000 };
+  }
+
+  const holdMs = holdTimeSec * 1000;
+  // Per-phase extension: fraction of total hold, capped
+  const rawExtension = holdMs * MAX_EXTENSION_FRACTION;
+  const extensionMs = Math.min(rawExtension, MAX_EXTENSION_MS);
+  // Both phases steal, so total stolen is 2×
+  const totalStolen = extensionMs * 2;
+  const adjustedHoldMs = Math.max(0, holdMs - totalStolen);
+
+  return { extensionMs: Math.round(extensionMs), adjustedHoldMs: Math.round(adjustedHoldMs) };
+};
+
+// ============================================================================
+// Dynamic power easing for extended slideshow animations
+// ============================================================================
+// The exponent scales with the extension ratio so the slow-movement portion
+// naturally dominates as more hold time is absorbed — all via a single smooth
+// curve with no piecewise seams.
+//
+// BASE_EXPONENT: the curve strength when no extension is applied (matches power2).
+// MAX_EXPONENT:  upper clamp so the curve doesn't become numerically degenerate.
+// EXPONENT_SCALE: how aggressively the exponent grows with the extension ratio.
+
+const BASE_EXPONENT = 3;
+const MAX_EXPONENT = 8;
+const EXPONENT_SCALE = 3.5;
+
+/**
+ * Compute the power exponent based on how much the animation was extended.
+ * ratio = extendedDuration / baseDuration  (1 = no extension, 3 = tripled).
+ */
+const computeExponent = (baseDurationMs, extendedDurationMs) => {
+  const ratio = extendedDurationMs / Math.max(1, baseDurationMs);
+  return Math.min(MAX_EXPONENT, BASE_EXPONENT + (ratio - 1) * EXPONENT_SCALE);
+};
+
+/**
+ * Creates a smooth ease-in (for slide-out): t^n
+ * Higher n → camera sits near target longer, rushes at the end.
+ */
+export const createExtendedEaseIn = (baseDurationMs, extendedDurationMs) => {
+  const n = computeExponent(baseDurationMs, extendedDurationMs);
+  return (t) => Math.pow(t, n);
+};
+
+/**
+ * Creates a smooth ease-out (for slide-in): 1 - (1-t)^n
+ * Higher n → camera rushes in then drifts slowly to rest.
+ */
+export const createExtendedEaseOut = (baseDurationMs, extendedDurationMs) => {
+  const n = computeExponent(baseDurationMs, extendedDurationMs);
+  return (t) => 1 - Math.pow(1 - t, n);
+};

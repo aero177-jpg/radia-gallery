@@ -402,6 +402,9 @@ export const slideOutAnimation = (direction, options = {}) => {
 
     slideAnimationState = { fadeTimeoutId, resolve };
 
+    const rawEase = options.ease || config.ease || "power2.in";
+    const resolvedEaseFn = typeof rawEase === 'function' ? rawEase : gsap.parseEase(rawEase);
+
     // Dolly-zoom: compute FOV endpoints and distance-compensation baseline
     let dollyBaseFov, dollyBaseDistance, dollyBaseDirection, dollyBaseTan, dollyStartFov, dollyEndFov;
     if (mode === 'dolly-zoom') {
@@ -421,7 +424,7 @@ export const slideOutAnimation = (direction, options = {}) => {
       ease: "none",
       onUpdate: () => {
         const t = proxy.t;
-        progress = gsap.parseEase(config.ease || "power2.in")(clamp01(t / durationSec));
+        progress = resolvedEaseFn(clamp01(t / durationSec));
 
         if (mode === 'dolly-zoom') {
           // Animate FOV with distance compensation to keep subject size
@@ -573,6 +576,8 @@ export const slideInAnimation = (direction, options = {}) => {
         }
       }
 
+      const rawEase = options.ease || config.ease || "power2.out";
+      const resolvedEaseFn = typeof rawEase === 'function' ? rawEase : gsap.parseEase(rawEase);
       const proxy = { t: 0 };
       let progress = 0;
 
@@ -589,7 +594,7 @@ export const slideInAnimation = (direction, options = {}) => {
         ease: "none",
         onUpdate: () => {
           const t = proxy.t;
-          progress = gsap.parseEase(config.ease || "power2.out")(clamp01(t / durationSec));
+          progress = resolvedEaseFn(clamp01(t / durationSec));
 
           if (mode === 'dolly-zoom') {
             // Animate FOV with distance compensation to keep subject size

@@ -33,7 +33,7 @@ import {
   queueContinuousHandoff,
   clearContinuousHandoff,
 } from "./continuousAnimations.js";
-import { resolveSlideInOptions } from "./slideConfig.js";
+import { resolveSlideInOptions, computeSlideshowTimingExtension } from "./slideConfig.js";
 import { camera, controls, requestRender, THREE } from "./viewer.js";
 import gsap from "gsap";
 
@@ -391,6 +391,8 @@ const startContinuousForCurrentMode = () => {
 
 /**
  * Schedules the next auto-advance after hold duration (reads from store).
+ * For non-continuous mode, the hold time is reduced by the timing extension
+ * that was stolen to stretch slide-in/slide-out animations in fileLoader.
  */
 const scheduleNextAdvance = () => {
   if (!isPlaying) return;
@@ -399,11 +401,17 @@ const scheduleNextAdvance = () => {
   const isContinuous = store.slideshowContinuousMode && store.slideMode !== 'fade';
   const continuousDuration = store.continuousMotionDuration ?? 10;
   const slideInOffsetSec = isContinuous ? 2.5 : 0;
-  const holdDuration = isContinuous
-    ? Math.max(0, continuousDuration - slideInOffsetSec)
-    : (store.slideshowDuration ?? 3);
 
-  scheduleNextAdvanceMs(holdDuration * 1000);
+  let holdMs;
+  if (isContinuous) {
+    holdMs = Math.max(0, continuousDuration - slideInOffsetSec) * 1000;
+  } else {
+    const rawHold = store.slideshowDuration ?? 3;
+    const { adjustedHoldMs } = computeSlideshowTimingExtension(rawHold);
+    holdMs = adjustedHoldMs;
+  }
+
+  scheduleNextAdvanceMs(holdMs);
 };
 
 /**
