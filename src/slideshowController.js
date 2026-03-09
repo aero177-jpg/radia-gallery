@@ -185,7 +185,7 @@ export const resetSlideshowTimer = () => {
 
 /**
  * Restart continuous animations if the slideshow is actively playing in
- * continuous mode.  Call this after manual proxy-view navigation so the
+ * continuous mode.  Call this after manual view-instance navigation so the
  * motion resumes from the newly-glided camera pose.
  */
 export const restartContinuousIfPlaying = () => {
@@ -433,7 +433,7 @@ const scheduleNextAdvanceMs = (ms) => {
 
 /**
  * Advances to the next asset then schedules another advance.
- * For same-base proxy views in continuous mode, queues a seamless handoff
+ * For same-base view instances in continuous mode, queues a seamless handoff
  * instead of going through the full load path.
  */
 const advanceAndSchedule = async () => {
@@ -446,7 +446,7 @@ const advanceAndSchedule = async () => {
   const slideMode = resolveContinuousSlideMode(store);
   const activeTween = getActiveContinuousTween();
 
-  // Peek ahead: is the next asset a same-base proxy view?
+  // Peek ahead: is the next asset a same-base view instance?
   if (slideMode && activeTween) {
     const currentIdx = getCurrentAssetIndex();
     const count = getAssetCount();

@@ -23,6 +23,7 @@ function AssetSidebar() {
 
   const isVisible = useStore((state) => state.assetSidebarOpen);
   const setIsVisible = useStore((state) => state.setAssetSidebarOpen);
+  const vrSessionActive = useStore((state) => state.vrSessionActive);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteScope, setDeleteScope] = useState('single'); // 'single' or 'all'
   const [clearMetadata, setClearMetadata] = useState(false);
@@ -307,8 +308,8 @@ function AssetSidebar() {
 
     try {
       if (deleteRemote) {
-        // Filter out proxy views — they're virtual and share the base file's remote path
-        const remoteTargets = targets.filter((a) => !a?.isProxyView);
+        // Filter out view instances — they're virtual and share the base file's remote path
+        const remoteTargets = targets.filter((a) => !a?.isViewInstance);
         await deleteSupabaseAssets(remoteTargets);
       }
     } catch (err) {
@@ -318,9 +319,9 @@ function AssetSidebar() {
     if (deleteScope === 'single') {
       const asset = assets[currentAssetIndex];
 
-      if (asset?.isProxyView) {
-        // Proxy view: remove the view definition from the metadata so it
-        // won't be recreated by syncAssetProxyViews on next load.
+      if (asset?.isViewInstance) {
+        // View instance: remove the view definition from the metadata so it
+        // won't be recreated by syncAssetViewInstances on next load.
         const baseName = asset.baseAssetName || asset.name;
         if (asset.viewId) {
           await clearCustomMetadataViewForAsset(baseName, asset.viewId);
@@ -400,7 +401,7 @@ function AssetSidebar() {
       {/* Sidebar */}
       <div 
         ref={sidebarRef}
-        class={`asset-sidebar ${isVisible ? 'visible' : ''}`}
+        class={`asset-sidebar ${isVisible ? 'visible' : ''} ${vrSessionActive ? 'vr-z-boost' : ''}`}
         style={suppressInteractions ? { pointerEvents: 'none' } : undefined}
         onMouseEnter={clearHideTimeout}
         onMouseLeave={scheduleHide}
@@ -468,11 +469,11 @@ function AssetSidebar() {
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
       >
-        <h3>Remove {assets[currentAssetIndex]?.isProxyView ? 'View' : 'Image'}</h3>
+        <h3>Remove {assets[currentAssetIndex]?.isViewInstance ? 'View' : 'Image'}</h3>
         {(() => {
           const asset = assets[currentAssetIndex];
 
-          if (asset?.isProxyView) {
+          if (asset?.isViewInstance) {
             return (
               <p class="modal-note">
                 This removes only this view; the base file and other views are not affected.
@@ -549,7 +550,7 @@ function AssetSidebar() {
               checked={deleteScope === 'single'}
               onChange={(e) => setDeleteScope(e.target.value)}
             />
-            Remove {assets[currentAssetIndex]?.isProxyView ? 'view' : 'image'} from queue 
+            Remove {assets[currentAssetIndex]?.isViewInstance ? 'view' : 'image'} from queue 
           </label>
           
           <label class="radio-option">
@@ -565,8 +566,8 @@ function AssetSidebar() {
         </div>
 
         {(() => {
-          // Proxy views are virtual — no remote file to delete
-          if (deleteScope === 'single' && assets[currentAssetIndex]?.isProxyView) return null;
+          // View instances are virtual — no remote file to delete
+          if (deleteScope === 'single' && assets[currentAssetIndex]?.isViewInstance) return null;
 
           const hasSupabase = deleteScope === 'single'
             ? assets[currentAssetIndex]?.sourceType === 'supabase-storage'
@@ -598,15 +599,15 @@ function AssetSidebar() {
               checked={clearMetadata}
               onChange={(e) => setClearMetadata(e.target.checked)}
             />
-            {assets[currentAssetIndex]?.isProxyView ? 'Clear stored preview' : 'Clear stored metadata'}
+            {assets[currentAssetIndex]?.isViewInstance ? 'Clear stored preview' : 'Clear stored metadata'}
           </label>
           <div class="modal-subnote">
-            {assets[currentAssetIndex]?.isProxyView
+            {assets[currentAssetIndex]?.isViewInstance
               ? 'This only clears the stored preview for this view; the base file\'s camera settings are preserved.'
               : 'Keeping metadata preserves image previews and camera settings, so re-adding the image restores them.'
             }
           </div>
-          {!assets[currentAssetIndex]?.isProxyView && assets.some((asset) => asset?.sourceId) && (
+          {!assets[currentAssetIndex]?.isViewInstance && assets.some((asset) => asset?.sourceId) && (
             <div class="modal-subnote">
               Removed collection items are hidden locally and can be restored later from Debug Settings.
             </div>

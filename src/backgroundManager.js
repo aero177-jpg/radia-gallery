@@ -112,7 +112,7 @@ export const hasBackgroundForPreview = (previewUrl) => {
 };
 
 // ============================================================================
-// Fade-through-dark for proxy-view transitions
+// Fade-through-dark for view-instance transitions
 // ============================================================================
 
 /** Default fade-out / fade-in durations (ms) */
@@ -205,7 +205,7 @@ export const crossFadePreviewBackground = (newUrl, durationMs = 1000, opts = {})
 
 /**
  * Fade the background out to dark only — no fade-in is scheduled.
- * Use this when leaving a proxy view for an unknown / non-proxy asset so the
+ * Use this when leaving a view instance for an unknown / non-view-instance asset so the
  * normal load path can apply the new background in its own time.
  *
  * Safe to call even if no background is active (no-op).

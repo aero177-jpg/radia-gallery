@@ -20,7 +20,6 @@ import { loadSplatFile, loadAssetByIndex } from '../fileLoader';
 import { captureCurrentAssetPreview, getAssetList } from '../assetManager';
 import { savePreviewBlob } from '../fileStorage';
 import {
-  applyCustomModelTransform,
   captureCustomMetadataPayload,
   saveCustomMetadataViewForAsset,
   addCustomMetadataViewForAsset,
@@ -36,6 +35,9 @@ const DEFAULT_CAMERA_RANGE_DEGREES = 26;
 const MIN_IMMERSIVE_RANGE_DEGREES = 10;
 const MAX_IMMERSIVE_RANGE_DEGREES = 90;
 const IMMERSIVE_RANGE_PER_SENSITIVITY = 18.75; // extra degrees per +1 sensitivity (hits 90° at max sens)
+const MIN_CUSTOM_NEAR_CLIP = 0.001;
+const MAX_CUSTOM_NEAR_CLIP = 1;
+const DEFAULT_CUSTOM_NEAR_CLIP = 0.01;
 
 const ASPECT_OPTIONS = [
   { value: 'full', label: 'Full', ratio: null },
@@ -54,7 +56,7 @@ const aspectKeyToRatio = (key) => {
 const getBaseAssetId = (asset) => asset?.baseAssetId || asset?.id;
 const getBaseAssetName = (asset) => asset?.baseAssetName || asset?.name;
 const makePreviewStorageKey = (assetName, viewId) => `${assetName}::${viewId}`;
-const makeProxyAssetId = (baseAssetId, viewId) => `${baseAssetId}::view::${viewId}`;
+const makeViewInstanceAssetId = (baseAssetId, viewId) => `${baseAssetId}::view::${viewId}`;
 const viewDisplayName = (assetName, order) => `${assetName} · View ${order + 1}`;
 
 /** Focus mode states */
@@ -73,6 +75,33 @@ const FOCUS_MODE = {
  * @returns {number} Clamped value
  */
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const clampCustomNearClip = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return DEFAULT_CUSTOM_NEAR_CLIP;
+  return clamp(numeric, MIN_CUSTOM_NEAR_CLIP, MAX_CUSTOM_NEAR_CLIP);
+};
+
+const sliderValueToNearClip = (sliderValue) => {
+  const t = clamp(Number(sliderValue) / 100, 0, 1);
+  const logMin = Math.log10(MIN_CUSTOM_NEAR_CLIP);
+  const logMax = Math.log10(MAX_CUSTOM_NEAR_CLIP);
+  return 10 ** (logMin + (logMax - logMin) * t);
+};
+
+const nearClipToSliderValue = (nearClip) => {
+  const clipped = clampCustomNearClip(nearClip);
+  const logMin = Math.log10(MIN_CUSTOM_NEAR_CLIP);
+  const logMax = Math.log10(MAX_CUSTOM_NEAR_CLIP);
+  return ((Math.log10(clipped) - logMin) / (logMax - logMin)) * 100;
+};
+
+const formatNearClip = (nearClip) => {
+  const clipped = clampCustomNearClip(nearClip);
+  if (clipped < 0.01) return clipped.toFixed(3);
+  if (clipped < 0.1) return clipped.toFixed(2);
+  return clipped.toFixed(1);
+};
 
 /**
  * Converts a linear slider value (0-180) to non-linear degrees.
@@ -217,6 +246,9 @@ function CameraControls() {
   focusModeRef.current = focusMode;
   const [isClearingCustomMetadata, setIsClearingCustomMetadata] = useState(false);
   const [isSavingNewView, setIsSavingNewView] = useState(false);
+  const [customNearClip, setCustomNearClip] = useState(
+    clampCustomNearClip(camera?.near ?? defaultCamera?.near ?? DEFAULT_CUSTOM_NEAR_CLIP),
+  );
 
   // Sync focus mode with custom focus state from store
   useEffect(() => {
@@ -233,6 +265,13 @@ function CameraControls() {
       setFocusSettingActive(false);
     }
   }, [focusMode, setFocusSettingActive]);
+
+  useEffect(() => {
+    if (!customMetadataControlsVisible) return;
+    setCustomNearClip(
+      clampCustomNearClip(camera?.near ?? defaultCamera?.near ?? DEFAULT_CUSTOM_NEAR_CLIP),
+    );
+  }, [customMetadataControlsVisible, currentAssetIndex, currentFileName]);
 
   /**
    * Handles click during focus-setting mode.
@@ -672,16 +711,26 @@ function CameraControls() {
     }
   }, [setImmersiveSensitivity, cameraRange, setCameraRange]);
 
-  const handleCustomModelScaleChange = useCallback((e) => {
-    const value = Number.parseFloat(e.target.value);
-    if (!Number.isFinite(value)) return;
-    setCustomModelScale(value);
-    // Apply scale with CV→GL flip always enabled for non-ML Sharp splats
-    applyCustomModelTransform(currentMesh, {
-      applyCoordinateFlip: true,
-      modelScale: value,
-    });
-  }, [setCustomModelScale]);
+  const handleCustomNearClipChange = useCallback((e) => {
+    if (!camera) return;
+
+    const sliderValue = Number.parseFloat(e.target.value);
+    if (!Number.isFinite(sliderValue)) return;
+
+    const nextNear = clampCustomNearClip(sliderValueToNearClip(sliderValue));
+    const fallbackFar = defaultCamera?.far ?? 500;
+    const nextFar = Number.isFinite(camera.far)
+      ? Math.max(camera.far, nextNear + 1)
+      : Math.max(fallbackFar, nextNear + 1);
+
+    setCustomNearClip(nextNear);
+    camera.near = nextNear;
+    camera.far = nextFar;
+    camera.updateProjectionMatrix();
+    controls?.update?.();
+    updateDollyZoomBaselineFromCamera();
+    requestRender();
+  }, []);
 
   const handleCustomAspectRatioChange = useCallback((e) => {
     const value = e.target.value;
@@ -738,7 +787,7 @@ function CameraControls() {
       currentAsset.baseAssetId = getBaseAssetId(currentAsset);
       currentAsset.baseAssetName = getBaseAssetName(currentAsset);
       currentAsset.cacheKey = currentAsset.baseAssetId;
-      currentAsset.isProxyView = Boolean(currentAsset.isProxyView);
+      currentAsset.isViewInstance = Boolean(currentAsset.isViewInstance);
       currentAsset.previewStorageKey = makePreviewStorageKey(currentAsset.baseAssetName, nextViewId);
     }
 
@@ -800,7 +849,7 @@ function CameraControls() {
       currentAsset.baseAssetId = getBaseAssetId(currentAsset);
       currentAsset.baseAssetName = getBaseAssetName(currentAsset);
       currentAsset.cacheKey = currentAsset.baseAssetId;
-      currentAsset.isProxyView = Boolean(currentAsset.isProxyView);
+      currentAsset.isViewInstance = Boolean(currentAsset.isViewInstance);
       currentAsset.previewStorageKey = makePreviewStorageKey(currentAsset.baseAssetName, nextViewId);
     }
 
@@ -866,10 +915,10 @@ function CameraControls() {
       candidate.displayName = viewDisplayName(baseAssetName, candidate.groupOrder);
     }
 
-    const proxyAsset = {
+    const viewInstanceAsset = {
       ...currentAsset,
-      id: makeProxyAssetId(baseAssetId, result.viewId),
-      isProxyView: true,
+      id: makeViewInstanceAssetId(baseAssetId, result.viewId),
+      isViewInstance: true,
       baseAssetId,
       baseAssetName,
       viewId: result.viewId,
@@ -880,7 +929,7 @@ function CameraControls() {
       loaded: false,
     };
 
-    list.splice(insertAfterIndex + 1, 0, proxyAsset);
+    list.splice(insertAfterIndex + 1, 0, viewInstanceAsset);
     setAssets([...list]);
 
     setCustomMetadataAvailable(true);
@@ -895,7 +944,7 @@ function CameraControls() {
       await loadAssetByIndex(nextIndex);
 
       const refreshedAssets = getAssetList();
-      const selectedAsset = refreshedAssets[nextIndex] || proxyAsset;
+      const selectedAsset = refreshedAssets[nextIndex] || viewInstanceAsset;
       const previewResult = await captureCurrentAssetPreview();
       if (previewResult?.blob && selectedAsset?.name) {
         await savePreviewBlob(selectedAsset.name, previewResult.blob, {
@@ -913,7 +962,7 @@ function CameraControls() {
       setIsSavingNewView(false);
     }
 
-    // Ensure editor stays open after proxy view load (which resets to false)
+    // Ensure editor stays open after view instance load (which resets to false)
     setCustomMetadataControlsVisible(true);
     setCameraSettingsExpanded(true);
   }, [currentFileName, assets, currentAssetIndex, customModelScale, customAspectRatio, setAssets, setCurrentAssetIndex, addLog, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, updateAssetPreview, setCameraSettingsExpanded]);
@@ -941,7 +990,7 @@ function CameraControls() {
         sameBaseAssets.forEach((item, idx) => {
           item.groupOrder = idx;
           item.displayName = viewDisplayName(getBaseAssetName(currentAsset), idx);
-          item.isProxyView = idx > 0;
+          item.isViewInstance = idx > 0;
         });
       }
 
@@ -962,6 +1011,7 @@ function CameraControls() {
       setCustomMetadataControlsVisible(false);
       setCustomModelScale(1);
       setCustomAspectRatio('full');
+      setCustomNearClip(clampCustomNearClip(defaultCamera?.near ?? DEFAULT_CUSTOM_NEAR_CLIP));
       setOriginalImageAspect(null);
       updateViewerAspectRatio();
       resize();
@@ -1345,24 +1395,22 @@ function CameraControls() {
               <span class="section-hint">Position camera, then save</span>
             </div>
             
-            {isFirstUnsavedCustomView && (
-              <div class="control-row">
-                <span class="control-label">Model scale</span>
-                <div class="control-track">
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="10"
-                    step="0.1"
-                    value={customModelScale}
-                    onInput={handleCustomModelScaleChange}
-                  />
-                  <span class="control-value">
-                    {customModelScale.toFixed(1)}×
-                  </span>
-                </div>
+            <div class="control-row">
+              <span class="control-label">Near clip</span>
+              <div class="control-track">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={nearClipToSliderValue(customNearClip)}
+                  onInput={handleCustomNearClipChange}
+                />
+                <span class="control-value">
+                  {formatNearClip(customNearClip)}
+                </span>
               </div>
-            )}
+            </div>
 
             <div class="control-row">
               <span class="control-label">Aspect ratio</span>

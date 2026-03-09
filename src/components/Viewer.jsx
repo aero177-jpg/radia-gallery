@@ -39,6 +39,10 @@ import R2UnlockState from './R2UnlockState.jsx';
 
 /** Tags that should not trigger keyboard shortcuts */
 const INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
+const CAMERA_MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']);
+const CAMERA_MOVE_WORLD_UP = new THREE.Vector3(0, 1, 0);
+const CAMERA_MOVE_FAST_KEYS = new Set(['ShiftLeft', 'ShiftRight']);
+const CAMERA_MOVE_FAST_MULTIPLIER = 4;
 
 /**
  * Checks if an event target is an input element.
@@ -63,6 +67,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   // Store state
   const debugLoadingMode = useStore((state) => state.debugLoadingMode);
   const metadataMissing = useStore((state) => state.metadataMissing);
+  const customMetadataAvailable = useStore((state) => state.customMetadataAvailable);
   const isUploading = useStore((state) => state.isUploading);
   const uploadProgress = useStore((state) => state.uploadProgress);
   const setUploadState = useStore((state) => state.setUploadState);
@@ -167,6 +172,10 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   const [currentMeshAssetId, setCurrentMeshAssetId] = useState(null);
   const lastTapTimeRef = useRef(0);
   const cursorIdleTimeoutRef = useRef(null);
+  const movementKeysRef = useRef(new Set());
+  const movementFastRef = useRef(false);
+  const movementFrameRef = useRef(null);
+  const movementLastTimeRef = useRef(0);
 
   const { hasOriginalMetadata, customMetadataMode } = useStore();
 
@@ -310,8 +319,8 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
     const isLarge = Number.isFinite(currentAssetSize) && currentAssetSize >= 100 * 1024 * 1024;
     // The mesh's userData.assetId is the cache key (baseAssetId), so for
-    // proxy views we must also compare against cacheKey/baseAssetId — not
-    // just the proxy's unique id — to avoid a false "Loading..." notice
+    // view instances we must also compare against cacheKey/baseAssetId — not
+    // just the instance's unique id — to avoid a false "Loading..." notice
     // when switching between views of an already-loaded splat.
     const meshId = currentMeshAssetId;
     const assetId = currentAsset?.id;
@@ -354,6 +363,80 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
     }
 
     const shouldIgnoreViewerInput = () => panelOpen || assetSidebarOpen;
+    const canUseMetadataCameraMovement = () => {
+      if (!camera || !controls || !currentMesh) return false;
+      if (!(metadataMissing || customMetadataAvailable)) return false;
+      if (document.querySelector('.modal-overlay')) return false;
+      return true;
+    };
+
+    const stopCameraMovement = () => {
+      movementKeysRef.current.clear();
+      movementFastRef.current = false;
+      movementLastTimeRef.current = 0;
+      if (movementFrameRef.current) {
+        cancelAnimationFrame(movementFrameRef.current);
+        movementFrameRef.current = null;
+      }
+    };
+
+    const stepCameraMovement = (timestamp) => {
+      movementFrameRef.current = null;
+
+      if (!canUseMetadataCameraMovement() || movementKeysRef.current.size === 0) {
+        stopCameraMovement();
+        return;
+      }
+
+      const previousTime = movementLastTimeRef.current || timestamp;
+      const dt = Math.min(0.05, Math.max(0, (timestamp - previousTime) / 1000));
+      movementLastTimeRef.current = timestamp;
+
+      const forward = new THREE.Vector3();
+      const right = new THREE.Vector3();
+      const up = camera.up?.clone?.().normalize?.() || CAMERA_MOVE_WORLD_UP.clone();
+      if (up.lengthSq() < 1e-6) {
+        up.copy(CAMERA_MOVE_WORLD_UP);
+      }
+
+      camera.getWorldDirection(forward).normalize();
+      right.crossVectors(forward, up).normalize();
+      if (right.lengthSq() < 1e-6) {
+        right.crossVectors(forward, CAMERA_MOVE_WORLD_UP).normalize();
+      }
+
+      const movement = new THREE.Vector3();
+      const activeKeys = movementKeysRef.current;
+      if (activeKeys.has('KeyW')) movement.add(forward);
+      if (activeKeys.has('KeyS')) movement.sub(forward);
+      if (activeKeys.has('KeyD')) movement.add(right);
+      if (activeKeys.has('KeyA')) movement.sub(right);
+      if (activeKeys.has('KeyE')) movement.add(up);
+      if (activeKeys.has('KeyQ')) movement.sub(up);
+
+      if (movement.lengthSq() > 0) {
+        movement.normalize();
+        const focusDistance = camera.position.distanceTo(controls.target);
+        const moveSpeed = Math.max(0.1, focusDistance * 0.9)
+          * (movementFastRef.current ? CAMERA_MOVE_FAST_MULTIPLIER : 1);
+        const delta = movement.multiplyScalar(moveSpeed * dt);
+        camera.position.add(delta);
+        controls.target.add(delta);
+        controls.update();
+        updateDollyZoomBaselineFromCamera();
+        requestRender();
+      }
+
+      if (movementKeysRef.current.size > 0) {
+        movementFrameRef.current = requestAnimationFrame(stepCameraMovement);
+      }
+    };
+
+    const startCameraMovementLoop = () => {
+      if (movementFrameRef.current || movementKeysRef.current.size === 0) return;
+      movementLastTimeRef.current = 0;
+      movementFrameRef.current = requestAnimationFrame(stepCameraMovement);
+    };
 
     const handleTap = () => {
       const now = Date.now();
@@ -537,10 +620,27 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       }
 
       if (document.querySelector('.modal-overlay')) {
+        stopCameraMovement();
         return;
       }
 
       cancelLoadZoomAnimation();
+
+      if (CAMERA_MOVE_FAST_KEYS.has(event.code) && canUseMetadataCameraMovement()) {
+        movementFastRef.current = true;
+        if (movementKeysRef.current.size > 0) {
+          startCameraMovementLoop();
+        }
+        return;
+      }
+
+      if (CAMERA_MOVE_KEYS.has(event.code) && canUseMetadataCameraMovement()) {
+        event.preventDefault();
+        movementKeysRef.current.add(event.code);
+        movementFastRef.current = event.shiftKey || movementFastRef.current;
+        startCameraMovementLoop();
+        return;
+      }
 
 
       if (event.code === 'KeyR' || event.key === 'r' || event.key === 'R') {
@@ -573,9 +673,35 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       }
     };
 
+    const handleKeyup = (event) => {
+      if (CAMERA_MOVE_FAST_KEYS.has(event.code)) {
+        movementFastRef.current = false;
+        return;
+      }
+      if (!CAMERA_MOVE_KEYS.has(event.code)) return;
+      movementKeysRef.current.delete(event.code);
+      if (movementKeysRef.current.size === 0) {
+        stopCameraMovement();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      stopCameraMovement();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden || document.querySelector('.modal-overlay')) {
+        stopCameraMovement();
+      }
+    };
+
     document.addEventListener('keydown', handleKeydown);
+    document.addEventListener('keyup', handleKeyup);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      stopCameraMovement();
       if (controls) {
         controls.removeEventListener('start', cancelLoadZoomOnUserInput);
       }
@@ -591,9 +717,12 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       }
       clearLongPressTimer();
       document.removeEventListener('keydown', handleKeydown);
+      document.removeEventListener('keyup', handleKeyup);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       unregisterTapListener();
     };
-  }, [viewerReady, addLog, togglePanel, setAnchorState, panelOpen, assetSidebarOpen, slideshowPlaying, metadataMissing, toggleViewerControlsDimmed, handleResetView]);
+  }, [viewerReady, addLog, togglePanel, setAnchorState, panelOpen, assetSidebarOpen, slideshowPlaying, metadataMissing, customMetadataAvailable, toggleViewerControlsDimmed, handleResetView]);
 
   useEffect(() => {
     const viewerEl = viewerRef.current;

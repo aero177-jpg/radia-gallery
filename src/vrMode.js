@@ -5,6 +5,7 @@ import {
   controls,
   scene,
   currentMesh,
+  defaultCamera,
   requestRender,
   suspendRenderLoop,
   resumeRenderLoop,
@@ -12,7 +13,14 @@ import {
 } from "./viewer.js";
 import { useStore } from "./store.js";
 import { restoreHomeView } from "./cameraUtils.js";
-import { loadNextAsset, loadPrevAsset } from "./fileLoader.js";
+import {
+  loadNextAsset,
+  loadPrevAsset,
+  getBaseAssetId,
+  resolveEffectiveCustomVrView,
+  setVrViewInstanceCallback,
+} from "./fileLoader.js";
+import { getSplatCache } from "./splatManager.js";
 
 let vrButton = null;
 let xrHands = null;
@@ -57,6 +65,19 @@ const MIN_VR_SCREEN_WIDTH = 768;
 const MIN_VR_SCREEN_HEIGHT = 480;
 const GRAB_SMOOTH_POSITION = 0.25; // 0..1 lerp per frame
 const GRAB_SMOOTH_ROTATION = 0.2; // 0..1 slerp per frame
+const STICK_EXPONENT = 2.0; // power curve exponent for stick response
+const SMOOTH_SCALE_SPEED = 1.8; // exponential scale rate per second when stick is fully deflected
+
+// Apply a non-linear response curve to stick input.
+// After deadzone, normalizes to 0..1 and raises to STICK_EXPONENT.
+// Small deflections yield very little output; full deflection yields 1.
+const applyStickCurve = (value, deadzone = STICK_DEADZONE) => {
+  const abs = Math.abs(value);
+  if (abs < deadzone) return 0;
+  const normalized = (abs - deadzone) / (1 - deadzone);
+  const curved = Math.pow(normalized, STICK_EXPONENT);
+  return Math.sign(value) * curved;
+};
 
 // Axis locking state for rotation
 let lockedRotationAxis = null; // 'x', 'y', or null
@@ -71,6 +92,127 @@ let lastScaleUpMs = 0;
 let lastScaleDownMs = 0;
 
 let vrSupportCheckPromise = null;
+let preVrCameraNear = null;
+let preVrCameraFar = null;
+let activeVrBaseAssetId = null;
+let activeVrSceneMode = null;
+
+const MIN_VR_NEAR_CLIP = 0.001;
+const MAX_VR_NEAR_CLIP = 1;
+const DEFAULT_VR_NEAR_CLIP = 0.01;
+const MIN_VR_FAR_CLIP = 0.5;
+const MAX_VR_FAR_CLIP = 200;
+const DEFAULT_VR_FAR_CLIP = 200;
+const MIN_VR_CLIP_GAP = 0.001;
+
+const clampVrNearClip = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return THREE.MathUtils.clamp(defaultCamera?.near ?? DEFAULT_VR_NEAR_CLIP, MIN_VR_NEAR_CLIP, MAX_VR_NEAR_CLIP);
+  }
+  return THREE.MathUtils.clamp(numeric, MIN_VR_NEAR_CLIP, MAX_VR_NEAR_CLIP);
+};
+
+const clampVrFarClip = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return THREE.MathUtils.clamp(defaultCamera?.far ?? DEFAULT_VR_FAR_CLIP, MIN_VR_FAR_CLIP, MAX_VR_FAR_CLIP);
+  }
+  return THREE.MathUtils.clamp(numeric, MIN_VR_FAR_CLIP, MAX_VR_FAR_CLIP);
+};
+
+const getSavedVrNearClipForAsset = (asset) => {
+  if (!asset) return null;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache()?.get(cacheKey);
+  const vrNearClip = entry?.storedSettings?.vrNearClip;
+  return Number.isFinite(vrNearClip) ? clampVrNearClip(vrNearClip) : null;
+};
+
+const getSavedVrFarClipForAsset = (asset) => {
+  if (!asset) return null;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache()?.get(cacheKey);
+  const vrFarClip = entry?.storedSettings?.vrFarClip;
+  return Number.isFinite(vrFarClip) ? clampVrFarClip(vrFarClip) : null;
+};
+
+const getVrSceneMode = () => {
+  const store = useStore.getState();
+  if (store.customMetadataAvailable) return "custom-metadata";
+  if (store.metadataMissing) return "metadata-missing";
+  return "built-in-metadata";
+};
+
+const applyVrClipPlanes = ({ nearClip, farClip } = {}) => {
+  if (!camera) return { near: null, far: null };
+
+  const fallbackNear = DEFAULT_VR_NEAR_CLIP;
+  const fallbackFar = DEFAULT_VR_FAR_CLIP;
+  const resolvedNear = clampVrNearClip(
+    nearClip ?? (Number.isFinite(camera.near) ? camera.near : fallbackNear),
+  );
+  const resolvedFarBase = clampVrFarClip(
+    farClip ?? (Number.isFinite(camera.far) ? camera.far : fallbackFar),
+  );
+  const resolvedFar = Math.max(resolvedFarBase, resolvedNear + MIN_VR_CLIP_GAP);
+
+  camera.near = resolvedNear;
+  camera.far = resolvedFar;
+  camera.updateProjectionMatrix();
+  controls?.update?.();
+  requestRender();
+  return { near: resolvedNear, far: resolvedFar };
+};
+
+const applyVrNearClip = (nextNearClip) => {
+  return applyVrClipPlanes({ nearClip: nextNearClip }).near;
+};
+
+const applyVrFarClip = (nextFarClip) => {
+  return applyVrClipPlanes({ farClip: nextFarClip }).far;
+};
+
+const restoreNonVrClipPlanes = () => {
+  if (!camera) return;
+  applyVrClipPlanes({
+    nearClip: Number.isFinite(preVrCameraNear) ? preVrCameraNear : (defaultCamera?.near ?? DEFAULT_VR_NEAR_CLIP),
+    farClip: Number.isFinite(preVrCameraFar) ? preVrCameraFar : (defaultCamera?.far ?? DEFAULT_VR_FAR_CLIP),
+  });
+};
+
+const applyDefaultVrClipPlanes = () => {
+  applyVrClipPlanes({
+    nearClip: getDefaultVrNearClip(),
+    farClip: getDefaultVrFarClip(),
+  });
+};
+
+const tryApplySavedVrClipPlanes = (assetOverride = null) => {
+  const store = useStore.getState();
+  const asset = assetOverride || (store.currentAssetIndex >= 0 ? store.assets[store.currentAssetIndex] : null);
+  const savedNearClip = getSavedVrNearClipForAsset(asset);
+  const savedFarClip = getSavedVrFarClipForAsset(asset);
+  if (savedNearClip !== null || savedFarClip !== null) {
+    applyVrClipPlanes({
+      nearClip: savedNearClip ?? DEFAULT_VR_NEAR_CLIP,
+      farClip: savedFarClip ?? DEFAULT_VR_FAR_CLIP,
+    });
+    return;
+  }
+
+  applyDefaultVrClipPlanes();
+  controls?.update?.();
+  requestRender();
+};
+
+const getDefaultVrNearClip = () => clampVrNearClip(MIN_VR_NEAR_CLIP);
+
+const getDefaultVrFarClip = () => {
+  const baseNear = getDefaultVrNearClip();
+  const baseFar = clampVrFarClip(MAX_VR_FAR_CLIP);
+  return Math.max(baseFar, baseNear + MIN_VR_CLIP_GAP);
+};
 
 const isSmallScreen = () => {
   const w = window.innerWidth || 0;
@@ -116,6 +258,21 @@ const scaleModel = (multiplier) => {
   requestRender();
 };
 
+const scaleModelSmooth = (input, dt) => {
+  const store = useStore.getState();
+  if (!currentMesh || !initialModelScale) return;
+  if (!Number.isFinite(input) || Math.abs(input) < 0.001) return;
+
+  const prevScale = store.vrModelScale || 1;
+  const ratio = Math.exp(input * SMOOTH_SCALE_SPEED * dt);
+  const nextScale = THREE.MathUtils.clamp(prevScale * ratio, MIN_SCALE, MAX_SCALE);
+  if (Math.abs(nextScale - prevScale) < 1e-5) return;
+
+  currentMesh.scale.multiplyScalar(nextScale / prevScale);
+  store.setVrModelScale(nextScale);
+  requestRender();
+};
+
 const restoreModelTransform = () => {
   const store = useStore.getState();
   // Restore to the true original scale (before VR baseline was applied)
@@ -135,6 +292,47 @@ const restoreModelTransform = () => {
   initialModelPosition = null;
   initialModelQuaternion = null;
   trueOriginalScale = null;
+};
+
+const clearControllerSelection = (controller) => {
+  if (!controller?.userData) return;
+  controller.userData.selected = undefined;
+  controller.userData.selectedParent = undefined;
+  controller.userData.grabOffset = undefined;
+  controller.userData.filteredPos = null;
+  controller.userData.filteredQuat = null;
+  controller.userData.targetRayMode = undefined;
+};
+
+const resetVrInteractionState = () => {
+  lockedRotationAxis = null;
+  clearControllerSelection(controller1);
+  clearControllerSelection(controller2);
+};
+
+const establishVrAssetBaseline = () => {
+  const store = useStore.getState();
+
+  resetVrInteractionState();
+  prepareVrCameraStart();
+
+  if (!currentMesh) {
+    initialModelScale = null;
+    initialModelPosition = null;
+    initialModelQuaternion = null;
+    trueOriginalScale = null;
+    store.setVrModelScale(1);
+    requestRender();
+    return;
+  }
+
+  trueOriginalScale = currentMesh.scale.clone();
+  currentMesh.scale.copy(trueOriginalScale).multiplyScalar(VR_BASELINE_SCALE);
+  initialModelScale = currentMesh.scale.clone();
+  initialModelPosition = currentMesh.position.clone();
+  initialModelQuaternion = currentMesh.quaternion.clone();
+  store.setVrModelScale(1);
+  requestRender();
 };
 
 const resetRotationOnly = () => {
@@ -159,6 +357,24 @@ const ensureHands = () => {
     xrHandMesh = xrHands.makeGhostMesh();
     if (xrHandMesh) {
       xrHandMesh.editable = false;
+
+      // Override ghost hand appearance: neutral color, lower opacity
+      xrHandMesh.traverse((child) => {
+        if (child.isMesh && child.material) {
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          for (const mat of mats) {
+            mat.color?.set(0xaaaaaa);
+            mat.emissive?.set(0x000000);
+            mat.opacity = 0.15;
+            mat.transparent = true;
+            mat.depthWrite = false;
+            if (mat.uniforms) {
+              if (mat.uniforms.color) mat.uniforms.color.value?.set(0xaaaaaa);
+              if (mat.uniforms.opacity) mat.uniforms.opacity.value = 0.15;
+            }
+          }
+        }
+      });
     }
   }
 
@@ -368,23 +584,37 @@ const handleVrGamepadInput = (dt) => {
 
     // ===== RIGHT CONTROLLER =====
     if (hand === "right") {
-      // Scale pan speed based on model scale - smaller models need slower panning
-      const currentScale = useStore.getState().vrModelScale || 1;
-      const scaledTranslateSpeed = TRANSLATE_SPEED * currentScale;
+      const triggerValue = buttons[BTN_TRIGGER]?.value ?? 0;
+      const triggerPressed = triggerValue > 0.1;
+      const activeController = index === 0 ? controller1 : controller2;
+      const isGrabbingMesh = Boolean(activeController?.userData?.selected);
 
-      // Right thumbstick: pan model (inverted for intuitive "drag" feel)
+      // Scale pan speed based on model scale (sqrt for gentler scaling)
+      const currentScale = useStore.getState().vrModelScale || 1;
+      const scaledTranslateSpeed = TRANSLATE_SPEED * Math.sqrt(currentScale);
+
+      // Right thumbstick: pan model normally, but while actively grabbing with
+      // the trigger, vertical stick motion becomes smooth scale control.
       if (currentMesh) {
         const delta = new THREE.Vector3();
         let moved = false;
 
-        if (Math.abs(stickX) > STICK_DEADZONE) {
+        const curvedX = applyStickCurve(stickX);
+        const curvedY = applyStickCurve(stickY);
+        const useStickForScaling = triggerPressed && isGrabbingMesh;
+
+        if (curvedX !== 0) {
           // Invert: stick right moves model left for intuitive feel
-          delta.addScaledVector(right, -stickX * scaledTranslateSpeed * dt);
+          delta.addScaledVector(right, -curvedX * scaledTranslateSpeed * dt);
           moved = true;
         }
-        if (Math.abs(stickY) > STICK_DEADZONE) {
+
+        if (useStickForScaling && Math.abs(curvedY) > 0) {
+          // Stick up enlarges, stick down shrinks.
+          scaleModelSmooth(-curvedY, dt);
+        } else if (curvedY !== 0) {
           // Invert: stick up moves model down for intuitive feel
-          delta.addScaledVector(up, stickY * scaledTranslateSpeed * dt);
+          delta.addScaledVector(up, curvedY * scaledTranslateSpeed * dt);
           moved = true;
         }
 
@@ -405,7 +635,7 @@ const handleVrGamepadInput = (dt) => {
       // B button: next image
       if (isPressed(BTN_B_OR_Y)) {
         if (now - lastNextMs > BUTTON_COOLDOWN_MS) {
-          setTimeout(() => loadNextAsset(), 0);
+          loadNextAsset();
           lastNextMs = now;
         }
       }
@@ -413,7 +643,7 @@ const handleVrGamepadInput = (dt) => {
       // A button: previous image
       if (isPressed(BTN_A_OR_X)) {
         if (now - lastPrevMs > BUTTON_COOLDOWN_MS) {
-          setTimeout(() => loadPrevAsset(), 0);
+          loadPrevAsset();
           lastPrevMs = now;
         }
       }
@@ -424,11 +654,12 @@ const handleVrGamepadInput = (dt) => {
       if (currentMesh) {
         const triggerValue = buttons[BTN_TRIGGER]?.value ?? 0;
         const triggerPressed = triggerValue > 0.1;
-        const stickYDepth = Math.abs(stickY) > STICK_DEADZONE ? stickY : 0;
-        const depthInput = triggerPressed ? stickYDepth : 0;
+        const curvedDepthY = applyStickCurve(stickY);
+        const depthInput = triggerPressed ? curvedDepthY : 0;
         if (Math.abs(depthInput) > 0.01) {
+          // Use sqrt of scale so zoom stays usable at both small and large scales
           const currentScale = useStore.getState().vrModelScale || 1;
-          const scaledDepthSpeed = DEPTH_SPEED * currentScale;
+          const scaledDepthSpeed = DEPTH_SPEED * Math.sqrt(currentScale);
           const depthDelta = depthInput * scaledDepthSpeed * dt;
           currentMesh.position.addScaledVector(forward, depthDelta);
           requestRender();
@@ -454,8 +685,11 @@ const handleVrGamepadInput = (dt) => {
 
         // Left thumbstick X: rotate model around world Y axis (horizontal spin)
         // Flipped: Stick right = rotate counter-clockwise, stick left = clockwise
-        if (lockedRotationAxis === 'x' && absX > STICK_DEADZONE) {
-          const rotationAmount = stickX * ROTATION_SPEED * dt; // flipped direction
+        // Power curve: small stick deflection = slow rotation, full = fast
+        const curvedRotX = applyStickCurve(stickX);
+        const curvedRotY = applyStickCurve(stickY);
+        if (lockedRotationAxis === 'x' && Math.abs(curvedRotX) > 0) {
+          const rotationAmount = curvedRotX * ROTATION_SPEED * dt; // flipped direction
           
           // Rotate model around the pivot on world Y axis
           const offset = currentMesh.position.clone().sub(pivot);
@@ -470,8 +704,8 @@ const handleVrGamepadInput = (dt) => {
 
         // Left thumbstick Y: rotate model around right axis (vertical tilt/pitch)
         // Flipped: Stick forward = tilt backward, stick back = tilt forward
-        if (lockedRotationAxis === 'y' && absY > STICK_DEADZONE) {
-          const rotationAmount = -stickY * ROTATION_SPEED * dt; // flipped direction
+        if (lockedRotationAxis === 'y' && Math.abs(curvedRotY) > 0) {
+          const rotationAmount = -curvedRotY * ROTATION_SPEED * dt; // flipped direction
 
           // Rotate model around the pivot on the right axis (pitch)
           const offset = currentMesh.position.clone().sub(pivot);
@@ -514,6 +748,34 @@ const handleVrGamepadInput = (dt) => {
 
 const prepareVrCameraStart = () => {
   if (!camera) return;
+  const store = useStore.getState();
+  const shouldUseGridEyeLevelStart = !store.metadataMissing && !store.customMetadataAvailable;
+
+  if (shouldUseGridEyeLevelStart) {
+    const target = controls?.target?.clone?.() ?? new THREE.Vector3();
+    const flatTarget = new THREE.Vector3(target.x, 0, target.z);
+    const offset = new THREE.Vector3().subVectors(camera.position, target);
+    const flatOffset = new THREE.Vector3(offset.x, 0, offset.z);
+
+    if (flatOffset.lengthSq() < 1e-6) {
+      camera.getWorldDirection(flatOffset);
+      flatOffset.y = 0;
+      flatOffset.multiplyScalar(-1);
+    }
+
+    const baseDist = flatOffset.length() || offset.length() || 1;
+    const dir = flatOffset.lengthSq() > 1e-6
+      ? flatOffset.normalize()
+      : new THREE.Vector3(0, 0, 1);
+    const startDist = baseDist * 1.2 + 0.5;
+
+    camera.position.copy(flatTarget).addScaledVector(dir, startDist);
+    camera.position.y = 0;
+    camera.lookAt(flatTarget);
+    camera.updateProjectionMatrix();
+    return;
+  }
+
   const target = controls?.target?.clone?.() ?? new THREE.Vector3();
   const offset = new THREE.Vector3().subVectors(camera.position, target);
   const baseDist = offset.length() || 1;
@@ -524,6 +786,52 @@ const prepareVrCameraStart = () => {
   camera.updateProjectionMatrix();
 };
 
+/**
+ * Look up the current asset's cached storedSettings and apply a saved VR view
+ * (model transform) if one exists.  Called immediately after VR session setup.
+ */
+const tryApplySavedVrView = (assetOverride = null) => {
+  const store = useStore.getState();
+  const { assets, currentAssetIndex } = store;
+  const asset = assetOverride || (currentAssetIndex >= 0 ? assets[currentAssetIndex] : null);
+  if (!asset) return;
+
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const cache = getSplatCache();
+  const entry = cache?.get(cacheKey);
+  if (!entry?.storedSettings) return;
+
+  const vrView = resolveEffectiveCustomVrView(entry.storedSettings, asset);
+  if (!vrView) return;
+
+  applyVrView(vrView);
+};
+
+const syncVrStateToCurrentAsset = (assetOverride = null, options = {}) => {
+  const store = useStore.getState();
+  if (!store.vrSessionActive) return;
+
+  const asset = assetOverride || (store.currentAssetIndex >= 0 ? store.assets[store.currentAssetIndex] : null);
+  const nextBaseAssetId = asset ? (asset.cacheKey || getBaseAssetId(asset) || asset.id) : null;
+  const nextSceneMode = getVrSceneMode();
+  const shouldRebaseline = Boolean(
+    options.forceRebaseline
+      || nextBaseAssetId !== activeVrBaseAssetId
+      || nextSceneMode !== activeVrSceneMode,
+  );
+
+  if (shouldRebaseline) {
+    establishVrAssetBaseline();
+  }
+
+  tryApplySavedVrView(asset);
+  tryApplySavedVrClipPlanes(asset);
+
+  activeVrBaseAssetId = nextBaseAssetId;
+  activeVrSceneMode = nextSceneMode;
+  requestRender();
+};
+
 const handleSessionStart = () => {
   const store = useStore.getState();
   store.setVrSessionActive(true);
@@ -532,20 +840,18 @@ const handleSessionStart = () => {
   renderer.xr.enabled = true;
   renderer.xr.setReferenceSpaceType?.("local-floor");
   if (controls) controls.enabled = false;
-
-  prepareVrCameraStart();
-  trueOriginalScale = currentMesh?.scale?.clone() ?? null;
-  // Apply baseline scale and store as the VR "home" transform
-  if (currentMesh && trueOriginalScale) {
-    currentMesh.scale.copy(trueOriginalScale).multiplyScalar(VR_BASELINE_SCALE);
-  }
-  initialModelScale = currentMesh?.scale?.clone() ?? null;
-  initialModelPosition = currentMesh?.position?.clone() ?? null;
-  initialModelQuaternion = currentMesh?.quaternion?.clone() ?? null; // Store initial rotation
-  store.setVrModelScale(1);
+  preVrCameraNear = camera?.near ?? null;
+  preVrCameraFar = camera?.far ?? null;
   ensureHands();
   ensureGrabControllers();
   setupVrAnimationLoop();
+
+  syncVrStateToCurrentAsset(null, { forceRebaseline: true });
+
+  // Register callback so asset or view changes rebuild VR state when needed.
+  setVrViewInstanceCallback((asset) => {
+    syncVrStateToCurrentAsset(asset);
+  });
 
   if (!keyListenerAttached) {
     window.addEventListener("keydown", handleScaleKeydown);
@@ -556,6 +862,7 @@ const handleSessionStart = () => {
 const handleSessionEnd = () => {
   const store = useStore.getState();
 
+  setVrViewInstanceCallback(null);
   stopVrAnimationLoop();
   renderer.xr.enabled = false;
   if (controls) controls.enabled = true;
@@ -566,6 +873,11 @@ const handleSessionEnd = () => {
     window.removeEventListener("keydown", handleScaleKeydown);
     keyListenerAttached = false;
   }
+  restoreNonVrClipPlanes();
+  preVrCameraNear = null;
+  preVrCameraFar = null;
+  activeVrBaseAssetId = null;
+  activeVrSceneMode = null;
   
   // Restore camera to home view after VR session
   restoreHomeView();
@@ -650,4 +962,93 @@ export const enterVrSession = async () => {
     console.warn("VR start failed:", err);
     return false;
   }
+};
+
+export const exitVrSessionAndRefresh = async () => {
+  const currentSession = renderer?.xr?.getSession?.();
+  if (!currentSession) {
+    window.location.reload();
+    return true;
+  }
+
+  const handleEnd = () => {
+    window.location.reload();
+  };
+
+  currentSession.addEventListener("end", handleEnd, { once: true });
+
+  try {
+    await currentSession.end();
+    return true;
+  } catch (err) {
+    currentSession.removeEventListener("end", handleEnd);
+    console.warn("Failed to end VR session:", err);
+    return false;
+  }
+};
+
+export const getCurrentVrNearClip = () => clampVrNearClip(camera?.near ?? defaultCamera?.near ?? DEFAULT_VR_NEAR_CLIP);
+
+export const setCurrentVrNearClip = (nearClip) => applyVrNearClip(nearClip);
+
+export const getDefaultCurrentVrNearClip = () => getDefaultVrNearClip();
+
+export const getCurrentVrFarClip = () => clampVrFarClip(camera?.far ?? defaultCamera?.far ?? DEFAULT_VR_FAR_CLIP);
+
+export const setCurrentVrFarClip = (farClip) => applyVrFarClip(farClip);
+
+export const getDefaultCurrentVrFarClip = () => getDefaultVrFarClip();
+
+/**
+ * Returns the current VR model transform state for saving.
+ * Captures position, quaternion, and scale relative to the VR baseline.
+ * Returns null if not in a VR session or no mesh is loaded.
+ */
+export const getCurrentVrModelTransform = () => {
+  if (!currentMesh || !useStore.getState().vrSessionActive) return null;
+
+  const pos = currentMesh.position.toArray();
+  const quat = [
+    currentMesh.quaternion.x,
+    currentMesh.quaternion.y,
+    currentMesh.quaternion.z,
+    currentMesh.quaternion.w,
+  ];
+  const scale = useStore.getState().vrModelScale || 1;
+
+  return { position: pos, quaternion: quat, vrModelScale: scale };
+};
+
+/**
+ * Applies a saved VR view transform to the current mesh.
+ * Called after VR session starts when a saved VR view exists for the asset.
+ * @param {Object} vrView - {position:[x,y,z], quaternion:[x,y,z,w], vrModelScale:number}
+ */
+export const applyVrView = (vrView) => {
+  if (!currentMesh || !vrView) return;
+
+  if (Array.isArray(vrView.position) && vrView.position.length === 3) {
+    currentMesh.position.fromArray(vrView.position);
+    // Update our stored initial so "reset" goes back to this saved pose
+    if (initialModelPosition) initialModelPosition.copy(currentMesh.position);
+  }
+
+  if (Array.isArray(vrView.quaternion) && vrView.quaternion.length === 4) {
+    currentMesh.quaternion.set(
+      vrView.quaternion[0], vrView.quaternion[1],
+      vrView.quaternion[2], vrView.quaternion[3],
+    );
+    if (initialModelQuaternion) initialModelQuaternion.copy(currentMesh.quaternion);
+  }
+
+  if (typeof vrView.vrModelScale === 'number' && vrView.vrModelScale > 0) {
+    const store = useStore.getState();
+    const currentScale = store.vrModelScale || 1;
+    const ratio = vrView.vrModelScale / currentScale;
+    currentMesh.scale.multiplyScalar(ratio);
+    store.setVrModelScale(vrView.vrModelScale);
+    if (initialModelScale) initialModelScale.copy(currentMesh.scale);
+  }
+
+  requestRender();
 };

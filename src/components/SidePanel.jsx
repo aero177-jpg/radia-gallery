@@ -29,6 +29,7 @@ function SidePanel() {
   const panelOpen = useStore((state) => state.panelOpen); // assumes this exists
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const viewerControlsDimmed = useStore((state) => state.viewerControlsDimmed);
+  const vrSessionActive = useStore((state) => state.vrSessionActive);
   // Store actions
   const togglePanel = useStore((state) => state.togglePanel);
 
@@ -197,7 +198,7 @@ function SidePanel() {
     <>
       {/* Panel toggle button */}
       <button
-        class={`panel-toggle${panelOpen ? ' open' : ''}${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}`}
+        class={`panel-toggle${panelOpen ? ' open' : ''}${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}${vrSessionActive ? ' vr-z-boost' : ''}`}
         aria-label="Toggle info panel"
         type="button"
         onClick={togglePanel}
@@ -213,7 +214,7 @@ function SidePanel() {
           />
       {/* Side panel content */}
       <div
-        class={`side${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}`}
+        class={`side${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}${vrSessionActive ? ' vr-z-boost' : ''}`}
         style={suppressInteractions ? { pointerEvents: 'none' } : undefined}
         onMouseEnter={handleSideEnter}
         onMouseLeave={handleSideLeave}

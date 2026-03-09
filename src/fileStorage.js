@@ -233,6 +233,59 @@ export const saveViewCustomAnimationSettings = async (fileName, viewId, customAn
 };
 
 /**
+ * Saves a custom VR view (model transform) for a file.
+ * @param {string} fileName - File name
+ * @param {Object} customVrView - {position, quaternion, vrModelScale}
+ * @returns {Promise<boolean>} Success status
+ */
+export const saveCustomVrView = async (fileName, customVrView) => {
+  return await saveFileSettings(fileName, { customVrView });
+};
+
+/**
+ * Saves a base-file VR near clip override.
+ * This is intentionally stored on the base asset, not per view instance.
+ * @param {string} fileName - Base file name
+ * @param {number} vrNearClip - VR near clip override
+ * @returns {Promise<boolean>} Success status
+ */
+export const saveVrNearClip = async (fileName, vrNearClip) => {
+  return await saveFileSettings(fileName, { vrNearClip });
+};
+
+/**
+ * Saves a base-file VR far clip override.
+ * This is intentionally stored on the base asset, not per view instance.
+ * @param {string} fileName - Base file name
+ * @param {number} vrFarClip - VR far clip override
+ * @returns {Promise<boolean>} Success status
+ */
+export const saveVrFarClip = async (fileName, vrFarClip) => {
+  return await saveFileSettings(fileName, { vrFarClip });
+};
+
+/**
+ * Saves a per-view custom VR view within a file's settings record.
+ * Each view can have its own VR model transform stored in a
+ * `viewCustomVrViews` map keyed by viewId.
+ * @param {string} fileName - Base file name
+ * @param {string} viewId - View identifier
+ * @param {Object} customVrView - {position, quaternion, vrModelScale}
+ * @returns {Promise<boolean>} Success status
+ */
+export const saveViewCustomVrView = async (fileName, viewId, customVrView) => {
+  if (!viewId) return false;
+  const existing = await loadFileSettings(fileName);
+  const viewCustomVrViews = { ...((existing || {}).viewCustomVrViews || {}) };
+  if (customVrView && Object.keys(customVrView).length > 0) {
+    viewCustomVrViews[viewId] = customVrView;
+  } else {
+    delete viewCustomVrViews[viewId];
+  }
+  return await saveFileSettings(fileName, { viewCustomVrViews });
+};
+
+/**
  * Saves per-file annotation text.
  * @param {string} fileName - File name
  * @param {string} annotation - Annotation text

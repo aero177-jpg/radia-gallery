@@ -23,6 +23,8 @@ export let controls;
 export let spark;
 export let raycaster;
 export let stereoCamera;
+export let worldGrid;
+let showGrid = false;
 
 // Default settings (captured after initialization)
 export let defaultCamera;
@@ -71,6 +73,13 @@ export const setActiveCamera = (cam) => { activeCamera = cam; };
 export const setOriginalImageAspect = (aspect) => { originalImageAspect = aspect; };
 export const setDollyZoomEnabled = (enabled) => { dollyZoomEnabled = enabled; };
 export const setBgImageUrl = (url) => { bgImageUrl = url; };
+export const setShowGrid = (enabled) => {
+  showGrid = Boolean(enabled);
+  if (worldGrid) {
+    worldGrid.visible = showGrid;
+    requestRender();
+  }
+};
 
 const clearContextLossRecoveryTimer = () => {
   if (contextLossRecoveryTimer) {
@@ -371,6 +380,12 @@ export const initViewer = (viewerEl) => {
   // Camera
   camera = new THREE.PerspectiveCamera(60, 1, 0.01, 500);
   camera.position.set(0.5, 0.5, 2.5);
+
+  worldGrid = new THREE.GridHelper(10, 20, 0x666666, 0x444444);
+  worldGrid.position.set(0, 0, 0);
+  worldGrid.visible = showGrid;
+  scene.add(worldGrid);
+
   defaultCamera = {
     fov: camera.fov,
     near: camera.near,
@@ -717,6 +732,7 @@ export const resetViewer = (viewerEl, { preserveBackground = true } = {}) => {
   controls = undefined;
   raycaster = undefined;
   stereoCamera = undefined;
+  worldGrid = undefined;
   defaultCamera = undefined;
   defaultControls = undefined;
   activeCamera = null;
