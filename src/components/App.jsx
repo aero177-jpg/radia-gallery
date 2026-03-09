@@ -16,7 +16,6 @@ import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset } from '../
 import { resetViewWithImmersive } from '../cameraUtils';
 import useOutsideClick from '../utils/useOutsideClick';
 
-import { initVrSupport } from '../vrMode';
 import { loadR2Settings } from '../storage/r2Settings.js';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import ControlsModal from './ControlsModal';
@@ -31,7 +30,6 @@ import { getImportUrlFromLocation, clearImportUrlFromLocation } from '../utils/i
 import ImportFromUrlModal from './ImportFromUrlModal';
 import { resetLandingView } from '../utils/resetLandingView.js';
 import BottomControls from './BottomControls';
-import VrOverlay from './VrOverlay';
 import useMobileState from '../utils/useMobileState';
 import { fadeInViewer, fadeOutViewer, restoreViewerVisibility } from '../utils/viewerFade';
 import useDemoCollections from './useDemoCollections';
@@ -349,7 +347,6 @@ function App() {
     
     initViewer(viewerEl);
     startRenderLoop();
-    void initVrSupport(viewerEl);
     setViewerReady(true);
     
     // Handle window resize
@@ -463,8 +460,6 @@ function App() {
 
       {showViewerUi && (isMobile && isPortrait ? <MobileSheet /> : <SidePanel />)}
       {showViewerUi && <BottomControls onOpenSlideshowOptions={() => setSlideshowOptionsOpen(true)} />}
-
-      <VrOverlay />
 
       <ConnectStorageDialog
         isOpen={storageDialogOpen}

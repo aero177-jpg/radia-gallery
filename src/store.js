@@ -302,9 +302,6 @@ export const useStore = create(
   stereoAspect: 1.0,
   stereoScale: 1.0,
   stereoOverlap: 1.0,
-  vrSupported: false,
-  vrSessionActive: false,
-  vrModelScale: 1,
 
   // Animation settings
   animationEnabled: true,
@@ -455,15 +452,6 @@ export const useStore = create(
 
   /** Sets stereo overlap width fraction (1.0 = full width, lower = narrower) */
   setStereoOverlap: (overlap) => set({ stereoOverlap: overlap }),
-
-  /** Marks whether WebXR/VR is available */
-  setVrSupported: (vrSupported) => set({ vrSupported }),
-
-  /** Tracks if a VR session is active */
-  setVrSessionActive: (vrSessionActive) => set({ vrSessionActive }),
-
-  /** Tracks model scale while in VR */
-  setVrModelScale: (vrModelScale) => set({ vrModelScale }),
 
   /** Deprecated: toggles legacy fill-to-screen projection vs fit-to-bounds */
   toggleFillMode: () => set((state) => ({ fillMode: !state.fillMode })),

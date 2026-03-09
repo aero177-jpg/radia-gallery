@@ -13,7 +13,6 @@ import { resetViewWithImmersive } from '../cameraUtils';
 import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
 import { resetSplatManager, updateAnnotationInCache } from '../splatManager';
 import { saveAnnotation } from '../fileStorage';
-import { initVrSupport } from '../vrMode';
 import useHasMesh from '../utils/useHasMesh';
 import useControlsReveal from '../utils/useControlsReveal';
 import AssetNavigation from './AssetNavigation';
@@ -62,7 +61,6 @@ function BottomControls({ onOpenSlideshowOptions }) {
 
     resetViewer(viewerEl, { preserveBackground: true });
     resetSplatManager();
-    void initVrSupport(viewerEl);
 
     await reloadCurrentAsset();
     resize();

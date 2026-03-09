@@ -33,12 +33,11 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
     'settings.main-settings',
     'settings.additional-settings',
   ];
-  const controlsKeys = ['controls.desktop', 'controls.mobile', 'controls.vr'];
+  const controlsKeys = ['controls.desktop', 'controls.mobile'];
   const connectionsKeys = ['connections.storage', 'connections.cloud-gpu'];
   const troubleshootingKeys = [
     'troubleshooting.render',
     'troubleshooting.collections',
-    'troubleshooting.vr',
   ];
 
   const isGettingStartedOpen = isAnyOpen(gettingStartedKeys);
@@ -109,7 +108,6 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
               <ul>
                 <li><strong>Custom Camera:</strong> This viewer auto sets the camera for optimal viewing of ml-sharp splats (with metadata). For others, manually adjust: scale to fill, rotate, double click, and zoom to frame intended view. You can add additional views on the same splat, click "edit custom camera", adjust camera, and save as new view.</li>
                 <li><strong>Tilt Sensitivity:</strong> Adjusts how device rotation effects view in immersive mode.</li>
-                <li><strong>VR toggle:</strong> Appears if an HMD is detected.</li>
                 <li><strong>SBS separation:</strong> Appears if sbs enabled in advanced settings (experimental). Effects stereo depth perceived. Click focus icon for auto adjust.</li>
                 <li><strong>SBS stereo aspect:</strong> Manual aspect ratio adjustment to match display.</li>
               </ul>
@@ -142,20 +140,6 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li>Swipe left or right in the lower part of the viewer (area with arrows) to advance splats.</li>
                 <li><strong>Tap:</strong> Pause slideshow, toggle UI.</li>
                 <li><strong>Immersive mode:</strong> Only tested on Android. Toggle with the “3d rotate” icon in the viewer. Drag to pan while moving the device to orbit. Click the focus icon to fix device sensor drift or set the current device angle as centered.</li>
-              </ul>
-            </Section>
-
-            <Section title="VR" isOpen={isSubsectionOpen('controls.vr')}>
-              <ul>
-                <li><strong>Right trigger near splat:</strong> Grab and directly move the model with the right controller.</li>
-                <li><strong>Right stick:</strong> Pan the splat left/right and up/down.</li>
-                <li><strong>Right trigger + right stick up/down while grabbing:</strong> Smoothly scale the splat larger or smaller.</li>
-                <li><strong>Left stick:</strong> Rotate the splat horizontally or vertically.</li>
-                <li><strong>Left trigger + left stick up/down:</strong> Push or pull the splat forward and backward in depth.</li>
-                <li><strong>Left X / Y:</strong> Step scale down or up.</li>
-                <li><strong>Left stick click:</strong> Reset splat rotation.</li>
-                <li><strong>Right stick click:</strong> Reset the VR view and splat transform.</li>
-                <li><strong>Right A / B:</strong> Previous or next splat.</li>
               </ul>
             </Section>
             <div class="controls-section-divider" />
@@ -220,18 +204,12 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li><strong>Background glow:</strong> This is a copy of preview for visual effect. May not appear on first render. Regenerate preview to correct issues, or remove in advanced settings.</li>
                 <li><strong>Missing previews:</strong> Only generated on first load. Click "batch previews" in advanced settings, or in the preview sidebar (available if multiple missing previews) to generate all.</li>
                 <li><strong>'Cracks' in splat:</strong> Thin areas may show cracks on performance or lower quality. "High" quality alleviates this but impacts performance.</li>
-                <li><strong>Poor performance:</strong> This app is focused on splat optimization, but some devices may still experience lag or stuttering. Integrated graphics, older mobile devices, and standalone VR headsets may be affected. Try adjusting quality presets, or adjust performance options in advanced settings. If running in browser, ensure that your dedicated GPU is utilized, and not your integrated graphics.</li>
+                <li><strong>Poor performance:</strong> This app is focused on splat optimization, but some devices may still experience lag or stuttering. Integrated graphics and older mobile devices may be affected. Try adjusting quality presets, or adjust performance options in advanced settings. If running in browser, ensure that your dedicated GPU is utilized, and not your integrated graphics.</li>
               </ul>
             </Section>
             <Section title="Collections" isOpen={isSubsectionOpen('troubleshooting.collections')}>
               <ul>
                 <li><strong>Files not appearing:</strong> If using a connected cloud storage, make sure you have the correct permissions set up. For Supabase, you can set up a policy with "select" permissions for the relevant table. For R2, make sure your access key and secret key are correct, and be sure to add a CORS policy under "settings".</li>
-              </ul>
-            </Section>
-
-            <Section title="VR" isOpen={isSubsectionOpen('troubleshooting.vr')}>
-              <ul>
-                <li><strong>VR view misaligned:</strong> If your scenes have multiple custom camera poses, but you notice that the VR view doesn't align correctly with the splat, this is likely due to a known issue with how we handle multiple custom views. As a workaround, you can switch to the desired custom camera pose, and then save a new VR view. This will capture the correct alignment for that pose. You can then switch between your saved VR view and custom camera poses as needed.</li> 
               </ul>
             </Section>
           </Section>

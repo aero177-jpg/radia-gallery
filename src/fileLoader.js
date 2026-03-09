@@ -59,22 +59,6 @@ export { updateViewerAspectRatio, resize } from "./layout.js";
 /** Navigation lock to prevent concurrent asset loads */
 let isNavigationLocked = false;
 
-/**
- * Callback invoked when a same-base view instance is navigated during VR.
- * Registered by vrMode on session start, cleared on session end.
- * Receives the new asset so vrMode can apply saved VR transforms.
- * @type {((asset: Object) => void) | null}
- */
-let onVrViewInstanceNavigated = null;
-
-/**
- * Register / clear the VR view-instance navigation callback.
- * @param {((asset: Object) => void) | null} cb
- */
-export const setVrViewInstanceCallback = (cb) => {
-  onVrViewInstanceNavigated = cb;
-};
-
 export const isNavigationLockedRef = () => isNavigationLocked;
 export const setNavigationLocked = (locked) => {
   isNavigationLocked = locked;
@@ -524,42 +508,6 @@ const resolveEffectiveCustomAnimation = (storedSettings, asset) => {
     return storedSettings.viewCustomAnimations[viewId];
   }
   return storedSettings?.customAnimation ?? null;
-};
-
-/**
- * Resolves the effective custom VR view for an asset, checking per-view
- * overrides first, then falling back to the base file's customVrView.
- * @param {Object} storedSettings - The file's storedSettings from the splat cache
- * @param {Object} asset - The current asset (may have a viewId for view instances)
- * @returns {Object|null} {position, quaternion, vrModelScale} or null
- */
-export const resolveEffectiveCustomVrView = (storedSettings, asset) => {
-  const viewId = asset?.viewId;
-  if (viewId && storedSettings?.viewCustomVrViews?.[viewId]) {
-    return storedSettings.viewCustomVrViews[viewId];
-  }
-  return storedSettings?.customVrView ?? null;
-};
-
-export const hasSavedVrViewForAsset = (asset) => {
-  if (!asset) return false;
-  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
-  const entry = getSplatCache().get(cacheKey);
-  return Boolean(resolveEffectiveCustomVrView(entry?.storedSettings, asset));
-};
-
-export const hasSavedVrNearClipOverrideForAsset = (asset) => {
-  if (!asset) return false;
-  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
-  const entry = getSplatCache().get(cacheKey);
-  return Number.isFinite(entry?.storedSettings?.vrNearClip);
-};
-
-export const hasSavedVrFarClipOverrideForAsset = (asset) => {
-  if (!asset) return false;
-  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
-  const entry = getSplatCache().get(cacheKey);
-  return Number.isFinite(entry?.storedSettings?.vrFarClip);
 };
 
 const syncStoredCustomAnimationSettings = (customAnimationSettings, store) => {
@@ -1209,9 +1157,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         requestAnimationFrame(warmup);
 
         if (!bgCaptured && warmupFrames === BG_CAPTURE_FRAME && !skipBgGeneration) {
-          // Also skip background capture in VR/stereo mode
+          // Skip background capture while stereo mode is active.
           const bgStoreState = getStoreState();
-          const isDistortedBg = bgStoreState.stereoEnabled || bgStoreState.vrSessionActive;
+          const isDistortedBg = bgStoreState.stereoEnabled;
           const backgroundMatchesPreview = hasBackgroundForPreview(asset.preview);
           if (!isDistortedBg && !backgroundMatchesPreview) {
             bgCaptured = true;
@@ -1223,9 +1171,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         if (!previewCaptured && warmupFrames === previewFrame) {
           previewCaptured = true;
           
-          // Skip preview capture if VR or stereo mode is active (would produce distorted preview)
+          // Skip preview capture while stereo mode is active (would produce distorted preview)
           const currentStoreState = getStoreState();
-          const isDistortedMode = currentStoreState.stereoEnabled || currentStoreState.vrSessionActive;
+          const isDistortedMode = currentStoreState.stereoEnabled;
           const shouldGeneratePreview = !isDistortedMode && (!asset.preview || asset.previewSource === 'image');
 
           if (shouldGeneratePreview) {
@@ -1292,10 +1240,6 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     const loadedMessage = cameraMetadata
       ? `Loaded ${formatName}`
       : `Loaded ${formatName} (no camera data)`;
-
-    if (store.vrSessionActive && onVrViewInstanceNavigated) {
-      onVrViewInstanceNavigated(asset);
-    }
 
     store.setStatus(loadedMessage);
     store.addLog(
@@ -1640,29 +1584,6 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   if (!selectedView?.cameraPose) return false;
 
   await syncAssetViewInstances({ store, currentAsset: asset, views });
-
-  // ── VR fast-path: skip camera animations, resize, aspect ratio changes ──
-  // In VR the model is manipulated directly, not the camera.
-  if (store.vrSessionActive) {
-    // Sync per-view store state
-    const activeCacheKeyForView = asset.cacheKey || getBaseAssetId(asset);
-    const cacheEntryForView = getSplatCache().get(activeCacheKeyForView);
-    if (cacheEntryForView) {
-      const viewCustomAnimation = resolveEffectiveCustomAnimation(cacheEntryForView.storedSettings, asset);
-      syncStoredCustomAnimationSettings(viewCustomAnimation, store);
-    }
-    store.setMetadataMissing(false);
-    store.setCustomMetadataAvailable(true);
-    store.setFileInfo({
-      name: getBaseAssetName(asset),
-      size: formatBytes(asset.file?.size ?? asset.size),
-    });
-    store.setStatus(`Loaded ${getBaseAssetName(asset)} view`);
-    // Notify vrMode so it can apply saved VR model transforms
-    if (onVrViewInstanceNavigated) onVrViewInstanceNavigated(asset);
-    requestRender();
-    return true;
-  }
 
   // Cancel any in-flight slide / continuous animations and stale handoffs
   cleanupSlideTransitionState();

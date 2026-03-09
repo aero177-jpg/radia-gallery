@@ -240,7 +240,7 @@ export const calculateOptimalEyeSeparation = (focusDistance, ratio = 0.05) => {
 
 /** 
  * Renders scene in side-by-side stereo using StereoCamera directly.
- * This gives us access to the aspect property for VR compatibility.
+ * This gives us access to the aspect property needed for stereo output.
  */
 const renderStereo = () => {
   if (!renderer || !camera || !stereoCamera) return;

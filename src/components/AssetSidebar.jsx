@@ -23,7 +23,6 @@ function AssetSidebar() {
 
   const isVisible = useStore((state) => state.assetSidebarOpen);
   const setIsVisible = useStore((state) => state.setAssetSidebarOpen);
-  const vrSessionActive = useStore((state) => state.vrSessionActive);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteScope, setDeleteScope] = useState('single'); // 'single' or 'all'
   const [clearMetadata, setClearMetadata] = useState(false);
@@ -401,7 +400,7 @@ function AssetSidebar() {
       {/* Sidebar */}
       <div 
         ref={sidebarRef}
-        class={`asset-sidebar ${isVisible ? 'visible' : ''} ${vrSessionActive ? 'vr-z-boost' : ''}`}
+        class={`asset-sidebar ${isVisible ? 'visible' : ''}`}
         style={suppressInteractions ? { pointerEvents: 'none' } : undefined}
         onMouseEnter={clearHideTimeout}
         onMouseLeave={scheduleHide}

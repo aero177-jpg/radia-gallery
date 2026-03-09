@@ -14,7 +14,7 @@ import ConnectStorageDialog from './ConnectStorageDialog';
 import { loadFromStorageSource, resize } from '../fileLoader';
 import { requestRender } from '../viewer';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronLeft, faHouse } from '@fortawesome/free-solid-svg-icons';
+import { faChevronLeft } from '@fortawesome/free-solid-svg-icons';
 import { resetLandingView } from '../utils/resetLandingView';
 import { HomeIcon } from '../icons/customIcons';
 
@@ -29,7 +29,6 @@ function SidePanel() {
   const panelOpen = useStore((state) => state.panelOpen); // assumes this exists
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const viewerControlsDimmed = useStore((state) => state.viewerControlsDimmed);
-  const vrSessionActive = useStore((state) => state.vrSessionActive);
   // Store actions
   const togglePanel = useStore((state) => state.togglePanel);
 
@@ -198,7 +197,7 @@ function SidePanel() {
     <>
       {/* Panel toggle button */}
       <button
-        class={`panel-toggle${panelOpen ? ' open' : ''}${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}${vrSessionActive ? ' vr-z-boost' : ''}`}
+        class={`panel-toggle${panelOpen ? ' open' : ''}${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}`}
         aria-label="Toggle info panel"
         type="button"
         onClick={togglePanel}
@@ -214,7 +213,7 @@ function SidePanel() {
           />
       {/* Side panel content */}
       <div
-        class={`side${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}${vrSessionActive ? ' vr-z-boost' : ''}`}
+        class={`side${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}`}
         style={suppressInteractions ? { pointerEvents: 'none' } : undefined}
         onMouseEnter={handleSideEnter}
         onMouseLeave={handleSideLeave}

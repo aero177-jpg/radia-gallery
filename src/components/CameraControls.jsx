@@ -27,7 +27,6 @@ import {
   applyFullOrbitConstraints,
   restoreOrbitConstraints,
 } from "../customMetadata.js";
-import { enterVrSession } from '../vrMode';
 import { updateViewerAspectRatio, resize } from '../layout.js';
 
 /** Default orbit range in degrees */
@@ -212,8 +211,6 @@ function CameraControls() {
   const setStereoScale = useStore((state) => state.setStereoScale);
   const stereoOverlap = useStore((state) => state.stereoOverlap);
   const setStereoOverlap = useStore((state) => state.setStereoOverlap);
-  const vrSupported = useStore((state) => state.vrSupported);
-  const vrSessionActive = useStore((state) => state.vrSessionActive);
   const hasAssetLoaded = useStore((state) => state.fileInfo?.name && state.fileInfo.name !== '-');
   const customMetadataControlsVisible = useStore((state) => state.customMetadataControlsVisible);
   const customMetadataAvailable = useStore((state) => state.customMetadataAvailable);
@@ -1175,20 +1172,6 @@ function CameraControls() {
               </>
             )}
           </>
-        )}
-
-        {/* VR button - shown when VR is supported and an asset is loaded */}
-        {vrSupported && hasAssetLoaded && (
-          <div class="control-row">
-            <button
-              class={`secondary enter-vr-btn ${vrSessionActive ? 'vr-active' : ''}`}
-              onClick={() => {
-                enterVrSession();
-              }}
-            >
-              {vrSessionActive ? 'Exit VR' : 'Enter VR'}
-            </button>
-          </div>
         )}
 
         {/* Quality preset */}
