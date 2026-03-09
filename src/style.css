@@ -2834,7 +2834,7 @@ select option {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 3000;
 }
 
 .modal-content {
@@ -4832,4 +4832,331 @@ background: #3e576c52;
   top: 20px;
   left: 20px;
   z-index: 7;
+}
+
+/* ─── VR Overlay ─── */
+
+.vr-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  animation: vr-overlay-fade-in 0.3s ease;
+}
+
+@keyframes vr-overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.vr-overlay__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  user-select: none;
+}
+
+.vr-overlay__header {
+  text-align: center;
+}
+
+.vr-overlay__asset-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.vr-overlay__title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 8px;
+  letter-spacing: 0.5px;
+}
+
+.vr-overlay__controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.vr-overlay__controls-link {
+  min-width: 210px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: 12px;
+  border: 2px solid rgba(110, 231, 255, 0.32);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.vr-overlay__controls-link:hover {
+  background: rgba(110, 231, 255, 0.14);
+  border-color: rgba(110, 231, 255, 0.68);
+}
+
+.vr-overlay__asset-name {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0;
+  max-width: 500px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vr-overlay__pose-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.vr-overlay__pose-indicator.is-saved {
+  border-color: rgba(72, 199, 142, 0.45);
+  background: rgba(72, 199, 142, 0.12);
+  color: rgba(184, 255, 215, 0.95);
+}
+
+.vr-overlay__pose-indicator.is-unsaved {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.vr-overlay__nav {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.vr-overlay__nav-btn {
+  width: 80px;
+  height: 80px;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.vr-overlay__nav-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(110, 231, 255, 0.6);
+  transform: scale(1.08);
+}
+
+.vr-overlay__nav-btn:active {
+  transform: scale(0.95);
+}
+
+.vr-overlay__save-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 32px;
+  border-radius: 12px;
+  border: 2px solid rgba(110, 231, 255, 0.35);
+  background: rgba(110, 231, 255, 0.08);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.vr-overlay__save-btn:hover {
+  background: rgba(110, 231, 255, 0.16);
+  border-color: rgba(110, 231, 255, 0.7);
+  transform: scale(1.04);
+}
+
+.vr-overlay__save-btn:active {
+  transform: scale(0.97);
+}
+
+.vr-overlay__save-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.vr-overlay__save-btn.is-saved {
+  border-color: rgba(72, 199, 142, 0.7);
+  background: rgba(72, 199, 142, 0.12);
+}
+
+.vr-overlay__save-btn.is-error {
+  border-color: rgba(255, 100, 100, 0.7);
+  background: rgba(255, 100, 100, 0.12);
+}
+
+.vr-overlay__nav-spacer {
+  width: 204px;
+  height: 1px;
+  flex: 0 0 auto;
+}
+
+.vr-overlay__actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.vr-overlay__slider-group {
+  width: min(440px, 92vw);
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vr-overlay__slider-row + .vr-overlay__slider-row {
+  margin-top: 14px;
+}
+
+.vr-overlay__slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.vr-overlay__slider-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.vr-overlay__slider-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.vr-overlay__toggle {
+  min-width: 42px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.vr-overlay__toggle.is-on {
+  border-color: rgba(110, 231, 255, 0.4);
+  background: rgba(110, 231, 255, 0.14);
+  color: #dff9ff;
+}
+
+.vr-overlay__toggle.is-off {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.vr-overlay__slider-value {
+  min-width: 42px;
+  text-align: right;
+  font-size: 13px;
+  color: rgba(110, 231, 255, 0.88);
+}
+
+.vr-overlay__slider {
+  width: 100%;
+  accent-color: rgb(110, 231, 255);
+  cursor: pointer;
+}
+
+.vr-overlay__slider:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.vr-overlay__action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.vr-overlay__action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.vr-overlay__action-btn--exit {
+  border-color: rgba(255, 100, 100, 0.3);
+  color: rgba(255, 140, 140, 0.8);
+}
+
+.vr-overlay__action-btn--exit:hover {
+  background: rgba(255, 100, 100, 0.12);
+  border-color: rgba(255, 100, 100, 0.6);
+  color: #ff9999;
+}
+
+.vr-overlay__hint {
+  max-width: min(720px, 92vw);
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.46);
+  line-height: 1.55;
+}
+
+.vr-overlay__hint p {
+  margin: 0;
+  font-style: italic;
+}
+
+.vr-overlay__hint p + p {
+  margin-top: 10px;
+}
+
+/* Boost sidebar z-index above VR overlay when in VR mode */
+.side.vr-z-boost,
+.panel-toggle.vr-z-boost,
+.asset-sidebar.vr-z-boost.visible {
+  z-index: 2100;
 }

@@ -31,6 +31,7 @@ import { getImportUrlFromLocation, clearImportUrlFromLocation } from '../utils/i
 import ImportFromUrlModal from './ImportFromUrlModal';
 import { resetLandingView } from '../utils/resetLandingView.js';
 import BottomControls from './BottomControls';
+import VrOverlay from './VrOverlay';
 import useMobileState from '../utils/useMobileState';
 import { fadeInViewer, fadeOutViewer, restoreViewerVisibility } from '../utils/viewerFade';
 import useDemoCollections from './useDemoCollections';
@@ -462,6 +463,8 @@ function App() {
 
       {showViewerUi && (isMobile && isPortrait ? <MobileSheet /> : <SidePanel />)}
       {showViewerUi && <BottomControls onOpenSlideshowOptions={() => setSlideshowOptionsOpen(true)} />}
+
+      <VrOverlay />
 
       <ConnectStorageDialog
         isOpen={storageDialogOpen}

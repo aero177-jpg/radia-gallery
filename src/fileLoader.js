@@ -59,6 +59,22 @@ export { updateViewerAspectRatio, resize } from "./layout.js";
 /** Navigation lock to prevent concurrent asset loads */
 let isNavigationLocked = false;
 
+/**
+ * Callback invoked when a same-base view instance is navigated during VR.
+ * Registered by vrMode on session start, cleared on session end.
+ * Receives the new asset so vrMode can apply saved VR transforms.
+ * @type {((asset: Object) => void) | null}
+ */
+let onVrViewInstanceNavigated = null;
+
+/**
+ * Register / clear the VR view-instance navigation callback.
+ * @param {((asset: Object) => void) | null} cb
+ */
+export const setVrViewInstanceCallback = (cb) => {
+  onVrViewInstanceNavigated = cb;
+};
+
 export const isNavigationLockedRef = () => isNavigationLocked;
 export const setNavigationLocked = (locked) => {
   isNavigationLocked = locked;
@@ -231,8 +247,9 @@ const normalizeAssetCandidate = (candidate) => {
 const getBaseAssetId = (asset) => asset?.baseAssetId || asset?.id;
 export { getBaseAssetId };
 const getBaseAssetName = (asset) => asset?.baseAssetName || asset?.name;
-const isProxyViewAsset = (asset) => Boolean(asset?.isProxyView && asset?.baseAssetId && asset?.viewId);
-const makeProxyAssetId = (baseAssetId, viewId) => `${baseAssetId}::view::${viewId}`;
+export { getBaseAssetName };
+const isViewInstanceAsset = (asset) => Boolean(asset?.isViewInstance && asset?.baseAssetId && asset?.viewId);
+const makeViewInstanceAssetId = (baseAssetId, viewId) => `${baseAssetId}::view::${viewId}`;
 const makePreviewStorageKey = (assetName, viewId) => `${assetName}::${viewId}`;
 
 const getViewDisplayName = (assetName, view, order) => {
@@ -251,13 +268,13 @@ const aspectRatioToKey = (ratio) => {
   return 'full';
 };
 
-const buildProxyViewAsset = (baseAsset, view, order) => {
+const buildViewInstanceAsset = (baseAsset, view, order) => {
   const baseId = getBaseAssetId(baseAsset);
   const baseName = getBaseAssetName(baseAsset);
   return {
     ...baseAsset,
-    id: makeProxyAssetId(baseId, view.id),
-    isProxyView: true,
+    id: makeViewInstanceAssetId(baseId, view.id),
+    isViewInstance: true,
     baseAssetId: baseId,
     baseAssetName: baseName,
     viewId: view.id,
@@ -277,7 +294,7 @@ const buildProxyViewAsset = (baseAsset, view, order) => {
 const ensureBaseAssetViewFields = (asset, view, order = 0) => {
   if (!asset) return;
   const baseName = getBaseAssetName(asset);
-  asset.isProxyView = false;
+  asset.isViewInstance = false;
   asset.baseAssetId = getBaseAssetId(asset);
   asset.baseAssetName = baseName;
   asset.viewId = view?.id || null;
@@ -292,19 +309,19 @@ const ensureBaseAssetViewFields = (asset, view, order = 0) => {
 };
 
 const findBaseAssetIndex = (assets, baseAssetId) => assets.findIndex(
-  (item) => !item?.isProxyView && getBaseAssetId(item) === baseAssetId,
+  (item) => !item?.isViewInstance && getBaseAssetId(item) === baseAssetId,
 );
 
-const removeProxyViewsForBase = (assets, baseAssetId) => {
+const removeViewInstancesForBase = (assets, baseAssetId) => {
   for (let i = assets.length - 1; i >= 0; i--) {
     const item = assets[i];
-    if (item?.isProxyView && item.baseAssetId === baseAssetId) {
+    if (item?.isViewInstance && item.baseAssetId === baseAssetId) {
       assets.splice(i, 1);
     }
   }
 };
 
-const syncAssetProxyViews = async ({ store, currentAsset, views }) => {
+const syncAssetViewInstances = async ({ store, currentAsset, views }) => {
   if (!store || !currentAsset) return;
   const assets = getAssetList();
   if (!assets?.length) return;
@@ -316,16 +333,16 @@ const syncAssetProxyViews = async ({ store, currentAsset, views }) => {
   const baseAsset = assets[baseIndex];
   const normalizedViews = Array.isArray(views) ? views : [];
 
-  // Fast-path: if proxy views already match the expected view IDs, skip the
+  // Fast-path: if view instances already match the expected view IDs, skip the
   // expensive destroy-and-rebuild cycle that re-fetches all previews from
   // IndexedDB on every view navigation.
   const existingProxies = assets.filter(
-    (a) => a?.isProxyView && a.baseAssetId === baseAssetId,
+    (a) => a?.isViewInstance && a.baseAssetId === baseAssetId,
   );
-  const expectedProxyViewIds = normalizedViews.slice(1).map((v) => v.id);
+  const expectedViewInstanceIds = normalizedViews.slice(1).map((v) => v.id);
   const proxiesMatch =
-    existingProxies.length === expectedProxyViewIds.length &&
-    existingProxies.every((p, i) => p.viewId === expectedProxyViewIds[i]);
+    existingProxies.length === expectedViewInstanceIds.length &&
+    existingProxies.every((p, i) => p.viewId === expectedViewInstanceIds[i]);
 
   if (proxiesMatch) {
     // Ensure base asset view fields are up to date (cheap, no async)
@@ -334,7 +351,7 @@ const syncAssetProxyViews = async ({ store, currentAsset, views }) => {
     return;
   }
 
-  removeProxyViewsForBase(assets, baseAssetId);
+  removeViewInstancesForBase(assets, baseAssetId);
 
   const firstView = normalizedViews[0] || null;
   const prevKey = baseAsset.previewStorageKey;
@@ -351,30 +368,30 @@ const syncAssetProxyViews = async ({ store, currentAsset, views }) => {
     }
   }
 
-  const proxyAssets = normalizedViews
+  const viewInstanceAssets = normalizedViews
     .slice(1)
-    .map((view, idx) => buildProxyViewAsset(baseAsset, view, idx + 1));
+    .map((view, idx) => buildViewInstanceAsset(baseAsset, view, idx + 1));
 
-  for (const proxy of proxyAssets) {
+  for (const viewInstance of viewInstanceAssets) {
     // eslint-disable-next-line no-await-in-loop
-    await hydrateAssetPreviewFromStorage(proxy);
+    await hydrateAssetPreviewFromStorage(viewInstance);
   }
 
-  if (proxyAssets.length > 0) {
-    assets.splice(baseIndex + 1, 0, ...proxyAssets);
+  if (viewInstanceAssets.length > 0) {
+    assets.splice(baseIndex + 1, 0, ...viewInstanceAssets);
   }
 
   store.setAssets([...assets]);
 };
 
-const syncProxyViewsForAssetList = async (store, { onlyBaseIds } = {}) => {
+const syncViewInstancesForAssetList = async (store, { onlyBaseIds } = {}) => {
   if (!store) return;
 
   const baseIdFilter = Array.isArray(onlyBaseIds) && onlyBaseIds.length > 0
     ? new Set(onlyBaseIds)
     : null;
 
-  const baseAssets = getAssetList().filter((asset) => !asset?.isProxyView);
+  const baseAssets = getAssetList().filter((asset) => !asset?.isViewInstance);
 
   for (const asset of baseAssets) {
     const baseAssetId = getBaseAssetId(asset);
@@ -389,21 +406,21 @@ const syncProxyViewsForAssetList = async (store, { onlyBaseIds } = {}) => {
       const views = metadata?.views ?? [];
       if (!views.length) continue;
       // eslint-disable-next-line no-await-in-loop
-      await syncAssetProxyViews({ store, currentAsset: asset, views });
+      await syncAssetViewInstances({ store, currentAsset: asset, views });
     } catch (err) {
-      console.warn(`[FileLoader] Failed to sync proxy views for ${assetName}:`, err);
+      console.warn(`[FileLoader] Failed to sync view instances for ${assetName}:`, err);
     }
   }
 };
 
-const resolveAssetView = async (asset) => {
+export const resolveAssetView = async (asset) => {
   const assetName = getBaseAssetName(asset);
   if (!assetName) return { metadata: null, views: [], selectedView: null };
   const metadata = await loadCustomMetadataForAsset(assetName);
   const views = metadata?.views ?? [];
   let selectedView = null;
   if (views.length > 0) {
-    if (asset?.isProxyView && asset?.viewId) {
+    if (asset?.isViewInstance && asset?.viewId) {
       selectedView = views.find((view) => view.id === asset.viewId) || null;
     } else {
       // Base asset should always represent the first saved custom view.
@@ -498,7 +515,7 @@ const syncStoredAnimationSettings = async (animationSettings, wasImmersiveModeAc
  * Resolves the effective custom animation for an asset, checking per-view
  * overrides first, then falling back to the base file's custom animation.
  * @param {Object} storedSettings - The file's storedSettings from the splat cache
- * @param {Object} asset - The current asset (may have a viewId for proxy views)
+ * @param {Object} asset - The current asset (may have a viewId for view instances)
  * @returns {Object|null}
  */
 const resolveEffectiveCustomAnimation = (storedSettings, asset) => {
@@ -507,6 +524,42 @@ const resolveEffectiveCustomAnimation = (storedSettings, asset) => {
     return storedSettings.viewCustomAnimations[viewId];
   }
   return storedSettings?.customAnimation ?? null;
+};
+
+/**
+ * Resolves the effective custom VR view for an asset, checking per-view
+ * overrides first, then falling back to the base file's customVrView.
+ * @param {Object} storedSettings - The file's storedSettings from the splat cache
+ * @param {Object} asset - The current asset (may have a viewId for view instances)
+ * @returns {Object|null} {position, quaternion, vrModelScale} or null
+ */
+export const resolveEffectiveCustomVrView = (storedSettings, asset) => {
+  const viewId = asset?.viewId;
+  if (viewId && storedSettings?.viewCustomVrViews?.[viewId]) {
+    return storedSettings.viewCustomVrViews[viewId];
+  }
+  return storedSettings?.customVrView ?? null;
+};
+
+export const hasSavedVrViewForAsset = (asset) => {
+  if (!asset) return false;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache().get(cacheKey);
+  return Boolean(resolveEffectiveCustomVrView(entry?.storedSettings, asset));
+};
+
+export const hasSavedVrNearClipOverrideForAsset = (asset) => {
+  if (!asset) return false;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache().get(cacheKey);
+  return Number.isFinite(entry?.storedSettings?.vrNearClip);
+};
+
+export const hasSavedVrFarClipOverrideForAsset = (asset) => {
+  if (!asset) return false;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache().get(cacheKey);
+  return Number.isFinite(entry?.storedSettings?.vrFarClip);
 };
 
 const syncStoredCustomAnimationSettings = (customAnimationSettings, store) => {
@@ -524,6 +577,9 @@ const syncStoredAnnotation = (annotation, store) => {
 
 const refreshSparkForCurrentView = (reason = 'unspecified') => {
   if (!spark?.update) return;
+
+  camera?.updateMatrix?.();
+  camera?.updateMatrixWorld?.(true);
 
   const viewToWorld = camera?.matrixWorld?.clone?.();
   if (viewToWorld) {
@@ -704,6 +760,23 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
             applyIntrinsicsAspect(entry);
             aspectApplied = true;
           }
+
+          // Pre-apply CV→GL coordinate flip BEFORE the mesh becomes visible
+          // and before Spark processes the scene.  This prevents a timing
+          // window where Spark generates its splat accumulator with the
+          // un-flipped mesh transform while the camera is later positioned
+          // for the flipped mesh – which caused an intermittent "flipped
+          // camera" on first load.  The flip decision only depends on
+          // whether the file has bundled intrinsics, which is already known.
+          // Scale will be applied (or re-applied) after resolveAssetView.
+          const earlyFlip = !entry.cameraMetadata?.intrinsics;
+          if (earlyFlip) {
+            applyCustomModelTransform(entry.mesh, {
+              applyCoordinateFlip: true,
+              modelScale: 1,
+            });
+          }
+
           const cache = getSplatCache();
           cache.forEach((cached, id) => {
             cached.mesh.visible = id === activeCacheKey;
@@ -723,7 +796,16 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         throw error;
       }
     } else {
-      // Activate the preloaded entry
+      // Activate the preloaded entry – apply early flip here too so Spark
+      // never sees the un-flipped mesh.
+      const earlyFlip = !entry.cameraMetadata?.intrinsics;
+      if (earlyFlip) {
+        applyCustomModelTransform(entry.mesh, {
+          applyCoordinateFlip: true,
+          modelScale: 1,
+        });
+      }
+
       const cache = getSplatCache();
       cache.forEach((cached, id) => {
         cached.mesh.visible = id === activeCacheKey;
@@ -763,7 +845,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     const hasCustomMetadata = Boolean(selectedView?.cameraPose);
 
     if (!cameraMetadata?.intrinsics) {
-      await syncAssetProxyViews({
+      await syncAssetViewInstances({
         store,
         currentAsset: asset,
         views: customViews,
@@ -780,6 +862,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
     if (shouldApplyFlip || hasCustomMetadata) {
       applyCustomModelTransform(entry.mesh, modelOverrides);
+      // Force Spark to regenerate its splat accumulator so the updated
+      // mesh transform (flip + scale) is baked into the packed data.
+      if (spark) spark.needsUpdate = true;
     }
 
     store.setCustomModelScale(modelOverrides.modelScale);
@@ -884,7 +969,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     // slide-out class was already added at the start of loadSplatFile for first load
 
     if (shouldHardCutCustomViewAspect) {
-      applyInstantProxyAspectCutAndReset('load-custom-base-view');
+      applyInstantViewInstanceAspectCutAndReset('load-custom-base-view');
     } else {
       // Resize immediately (viewer size transitions are disabled)
       updateViewerAspectRatio();
@@ -923,6 +1008,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
       if (hasCustomMetadata && !cameraMetadata?.intrinsics) {
         refreshSparkForCurrentView('post-camera-cached-custom-view');
+        forceViewInstancePostPoseRenderReflow('post-camera-cached-custom-view');
       }
       
       // Apply background BEFORE slideIn so it fades in sync with canvas
@@ -963,7 +1049,14 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       // For subsequent loads, use the configured animation
       const shouldAnimateCamera = !isFirstLoad && !wasImmersiveModeActive && store.animationEnabled;
 
-      await animateCameraMutation(() => {
+      if (!shouldAnimateCamera) {
+        // First load / no animation: apply camera directly without the
+        // animateCameraMutation start→target round-trip.  That round-trip
+        // re-applies the default camera position via applyCameraPose(startPose)
+        // which forces OrbitControls to re-derive its internal spherical state
+        // from the default offset.  With damping enabled, stale spherical delta
+        // or a slightly dirty internal state can cause the camera to drift back
+        // toward the default position on subsequent controls.update() calls.
         applyCameraForAsset();
 
         if (focusDistanceOverride !== undefined) {
@@ -979,13 +1072,32 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
         saveHomeView();
         applyDebugZoomOut();
-      }, { animate: shouldAnimateCamera });
+      } else {
+        await animateCameraMutation(() => {
+          applyCameraForAsset();
+
+          if (focusDistanceOverride !== undefined) {
+            applyFocusDistanceOverride(focusDistanceOverride);
+            store.addLog(`Applied focus distance override: ${focusDistanceOverride.toFixed(2)} units`);
+          }
+
+          try {
+            store.setFov(camera.fov);
+          } catch (err) {
+            console.warn('Failed to set store FOV from camera:', err);
+          }
+
+          saveHomeView();
+          applyDebugZoomOut();
+        }, { animate: true });
+      }
 
       // Bail out if a newer load superseded this one during the camera animation
       if (loadGeneration !== thisGeneration) return;
 
       if (hasCustomMetadata && !cameraMetadata?.intrinsics) {
         refreshSparkForCurrentView('post-camera-custom-view');
+        forceViewInstancePostPoseRenderReflow('post-camera-custom-view');
       }
       
       // Apply background BEFORE slideIn so it fades in sync with canvas
@@ -1177,6 +1289,11 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     const loadedMessage = cameraMetadata
       ? `Loaded ${formatName}`
       : `Loaded ${formatName} (no camera data)`;
+
+    if (store.vrSessionActive && onVrViewInstanceNavigated) {
+      onVrViewInstanceNavigated(asset);
+    }
+
     store.setStatus(loadedMessage);
     store.addLog(
       `Debug: splats=${entry.mesh?.packedSplats?.numSplats ?? "-"}`,
@@ -1414,8 +1531,8 @@ export const handleMultipleFiles = async (files) => {
     await loadSplatFile(result.assets[0]);
   }
 
-  void syncProxyViewsForAssetList(store).catch((err) => {
-    console.warn('[FileLoader] Failed to pre-sync proxy views for list', err);
+  void syncViewInstancesForAssetList(store).catch((err) => {
+    console.warn('[FileLoader] Failed to pre-sync view instances for list', err);
   });
 };
 
@@ -1461,15 +1578,15 @@ export const handleAddFiles = async (files, options = {}) => {
   }
 
   const newBaseIds = result.newAssets.map((asset) => getBaseAssetId(asset));
-  void syncProxyViewsForAssetList(store, { onlyBaseIds: newBaseIds }).catch((err) => {
-    console.warn('[FileLoader] Failed to pre-sync proxy views for added assets', err);
+  void syncViewInstancesForAssetList(store, { onlyBaseIds: newBaseIds }).catch((err) => {
+    console.warn('[FileLoader] Failed to pre-sync view instances for added assets', err);
   });
 };
 
 /** Duration (ms) for the smooth camera glide between views on the same splat */
 const SAME_BASE_GLIDE_MS = 2000;
 
-const applyInstantProxyAspectCutAndReset = (stage = 'proxy') => {
+const applyInstantViewInstanceAspectCutAndReset = (stage = 'view-instance') => {
   const viewerEl = document.getElementById('viewer');
   if (viewerEl) viewerEl.style.transition = 'none';
 
@@ -1491,7 +1608,7 @@ const applyInstantProxyAspectCutAndReset = (stage = 'proxy') => {
   }
 };
 
-const forceProxyPostPoseRenderReflow = (label = 'proxy') => {
+const forceViewInstancePostPoseRenderReflow = (label = 'view-instance') => {
   controls?.update?.();
   resize();
   refreshSparkForCurrentView(`reflow-${label}`);
@@ -1519,7 +1636,30 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   const { selectedView, views } = await resolveAssetView(asset);
   if (!selectedView?.cameraPose) return false;
 
-  await syncAssetProxyViews({ store, currentAsset: asset, views });
+  await syncAssetViewInstances({ store, currentAsset: asset, views });
+
+  // ── VR fast-path: skip camera animations, resize, aspect ratio changes ──
+  // In VR the model is manipulated directly, not the camera.
+  if (store.vrSessionActive) {
+    // Sync per-view store state
+    const activeCacheKeyForView = asset.cacheKey || getBaseAssetId(asset);
+    const cacheEntryForView = getSplatCache().get(activeCacheKeyForView);
+    if (cacheEntryForView) {
+      const viewCustomAnimation = resolveEffectiveCustomAnimation(cacheEntryForView.storedSettings, asset);
+      syncStoredCustomAnimationSettings(viewCustomAnimation, store);
+    }
+    store.setMetadataMissing(false);
+    store.setCustomMetadataAvailable(true);
+    store.setFileInfo({
+      name: getBaseAssetName(asset),
+      size: formatBytes(asset.file?.size ?? asset.size),
+    });
+    store.setStatus(`Loaded ${getBaseAssetName(asset)} view`);
+    // Notify vrMode so it can apply saved VR model transforms
+    if (onVrViewInstanceNavigated) onVrViewInstanceNavigated(asset);
+    requestRender();
+    return true;
+  }
 
   // Cancel any in-flight slide / continuous animations and stale handoffs
   cleanupSlideTransitionState();
@@ -1544,12 +1684,12 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
 
   // Preserve camera projection properties so the upcoming animation starts
   // from the *current* FOV / near / far rather than defaults.  Without this,
-  // clearMetadataCamera inside applyInstantProxyAspectCutAndReset resets them
+  // clearMetadataCamera inside applyInstantViewInstanceAspectCutAndReset resets them
   // to defaultCamera values, causing an instant FOV jump before the glide.
   const preservedFov = camera.fov;
   const preservedNear = camera.near;
   const preservedFar = camera.far;
-  applyInstantProxyAspectCutAndReset();
+  applyInstantViewInstanceAspectCutAndReset();
   camera.fov = preservedFov;
   camera.near = preservedNear;
   camera.far = preservedFar;
@@ -1569,7 +1709,7 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
     applyDebugZoomOut();
   }, { animate: true, duration: SAME_BASE_GLIDE_MS });
 
-  forceProxyPostPoseRenderReflow('after-proxy-glide');
+  forceViewInstancePostPoseRenderReflow('after-view-instance-glide');
 
   // If there was no preview to cross-fade, apply a fallback (or clear) now
   if (!asset.preview) {
@@ -1604,7 +1744,7 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
  * Pre-resolves the view and returns a handoff object whose onApply callback
  * synchronously applies all state (model, aspect, camera, store).
  *
- * @param {Object} asset - The next proxy view asset
+ * @param {Object} asset - The next view instance asset
  * @param {Object} opts
  * @param {string} opts.slideMode - Continuous slide mode (e.g. 'continuous-orbit')
  * @returns {Promise<Object|null>} handoff payload or null if view can't be resolved
@@ -1633,8 +1773,8 @@ export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = 
     return null;
   }
 
-  // Pre-sync proxy views (async work done now, not during handoff)
-  await syncAssetProxyViews({ store, currentAsset: asset, views });
+  // Pre-sync view instances (async work done now, not during handoff)
+  await syncAssetViewInstances({ store, currentAsset: asset, views });
 
   const { duration, amount } = resolveSlideInOptions(resolvedSlideMode, { preset: 'transition' });
 
@@ -1662,7 +1802,7 @@ export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = 
       const customAspectRatio = selectedView?.view?.aspectRatio ?? null;
       setOriginalImageAspect(customAspectRatio);
       applyStore.setCustomAspectRatio(aspectRatioToKey(customAspectRatio));
-      applyInstantProxyAspectCutAndReset();
+      applyInstantViewInstanceAspectCutAndReset();
 
       // Camera pose (so the continuous fn calculates offsets from the new view)
       applyCameraPose(selectedView.cameraPose);
@@ -1670,7 +1810,7 @@ export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = 
       saveHomeView();
       applyDebugZoomOut();
       updateDollyZoomBaselineFromCamera();
-      forceProxyPostPoseRenderReflow('continuous-handoff');
+      forceViewInstancePostPoseRenderReflow('continuous-handoff');
 
       // Store state
       applyStore.setMetadataMissing(false);
@@ -1734,9 +1874,9 @@ export const loadAssetByIndex = async (index) => {
         await loadSplatFile(asset, { outgoingCustomAnimationSettings });
       }
     } else {
-      // Gracefully fade out the background when leaving a proxy view so it
+      // Gracefully fade out the background when leaving a view instance so it
       // doesn't stay stuck at the old blur while the new asset loads.
-      if (isProxyViewAsset(prevAsset)) fadeOutBackground();
+      if (isViewInstanceAsset(prevAsset)) fadeOutBackground();
       await loadSplatFile(asset, { outgoingCustomAnimationSettings });
     }
   } finally {
@@ -1879,8 +2019,8 @@ export const loadFromStorageSource = async (source, options = {}) => {
       await loadSplatFile(result.assets[indexToLoad]);
     }
 
-    void syncProxyViewsForAssetList(store).catch((err) => {
-      console.warn('[FileLoader] Failed to pre-sync proxy views for source assets', err);
+    void syncViewInstancesForAssetList(store).catch((err) => {
+      console.warn('[FileLoader] Failed to pre-sync view instances for source assets', err);
     });
     
   } catch (error) {
@@ -1929,7 +2069,7 @@ export const loadNextAsset = async (options = {}) => {
       if (sameBase) {
         const reused = await navigateWithinLoadedBaseAsset(asset, { slideDirection: 'next' });
         if (reused) {
-          // Proxy-view glide finished — restart continuous motion if the
+          // View-instance glide finished — restart continuous motion if the
           // slideshow is actively playing in continuous mode so the camera
           // doesn't freeze after a manual advance.
           restartContinuousIfPlaying();
@@ -1937,7 +2077,7 @@ export const loadNextAsset = async (options = {}) => {
           await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings });
         }
       } else {
-        if (isProxyViewAsset(prevAsset)) fadeOutBackground();
+        if (isViewInstanceAsset(prevAsset)) fadeOutBackground();
         await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings });
       }
     }
@@ -1992,7 +2132,7 @@ export const loadPrevAsset = async (options = {}) => {
           await loadSplatFile(asset, { slideDirection: 'prev', outgoingCustomAnimationSettings });
         }
       } else {
-        if (isProxyViewAsset(prevLoadedAsset)) fadeOutBackground();
+        if (isViewInstanceAsset(prevLoadedAsset)) fadeOutBackground();
         await loadSplatFile(asset, { slideDirection: 'prev', outgoingCustomAnimationSettings });
       }
     }

@@ -27,14 +27,19 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
   const gettingStartedKeys = [
     'getting-started.overview',
     'getting-started.viewer-overview',
+    'getting-started.slideshow',
   ];
   const settingsKeys = [
     'settings.main-settings',
     'settings.additional-settings',
   ];
-  const controlsKeys = ['controls.desktop', 'controls.mobile'];
+  const controlsKeys = ['controls.desktop', 'controls.mobile', 'controls.vr'];
   const connectionsKeys = ['connections.storage', 'connections.cloud-gpu'];
-  const troubleshootingKeys = ['troubleshooting.render'];
+  const troubleshootingKeys = [
+    'troubleshooting.render',
+    'troubleshooting.collections',
+    'troubleshooting.vr',
+  ];
 
   const isGettingStartedOpen = isAnyOpen(gettingStartedKeys);
   const isSettingsOpen = isAnyOpen(settingsKeys);
@@ -116,14 +121,15 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Controls" isOpen={isControlsOpen}>
             <Section title="Desktop" isOpen={isSubsectionOpen('controls.desktop')}>
               <ul>
+                <li><strong>WASD QE:</strong> Navigate non ML-Sharp splat scenes. + <strong>shift</strong> to move faster.</li>
                 <li><strong>Double click:</strong> Zoom/orbit around point (hit refresh to clear).</li>
                 <li><strong>Click-drag:</strong> Orbit.</li>
                 <li><strong>Right click-drag:</strong> Pan.</li>
                 <li><strong>Scroll:</strong> Zoom.</li>
                 <li><strong>Click:</strong> Interact with controls and viewer.</li>
-                <li><strong>Tap or Spacebar:</strong> Play / pause slideshow. <strong>Double Tap</strong> to orbit image while paused.</li>
+                <li><strong>Spacebar:</strong> Play / pause slideshow.</li>
+                <li><strong>Tap:</strong> Pause slideshow, toggle UI.</li>
                 <li><strong>R key:</strong> Reset camera, or click focus icon in viewer.</li>
-                <li><strong>Arrow keys:</strong> Advance splats.</li>
                 <li><strong>F11:</strong> Opens normal browser fullscreen. You can also use the fullscreen button in the viewer controls.</li>
               </ul>
             </Section>
@@ -134,8 +140,22 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li>Swipe or tap left side of screen to toggle gallery panel.</li>
                 <li>In landscape, swipe/tap right side (or click upper right button) to open main menu. In portrait, swipe/tap bottom.</li>
                 <li>Swipe left or right in the lower part of the viewer (area with arrows) to advance splats.</li>
-                <li><strong>Tap:</strong> Play / pause slideshow. <strong>Double Tap</strong> to orbit image while paused.</li>
+                <li><strong>Tap:</strong> Pause slideshow, toggle UI.</li>
                 <li><strong>Immersive mode:</strong> Only tested on Android. Toggle with the “3d rotate” icon in the viewer. Drag to pan while moving the device to orbit. Click the focus icon to fix device sensor drift or set the current device angle as centered.</li>
+              </ul>
+            </Section>
+
+            <Section title="VR" isOpen={isSubsectionOpen('controls.vr')}>
+              <ul>
+                <li><strong>Right trigger near splat:</strong> Grab and directly move the model with the right controller.</li>
+                <li><strong>Right stick:</strong> Pan the splat left/right and up/down.</li>
+                <li><strong>Right trigger + right stick up/down while grabbing:</strong> Smoothly scale the splat larger or smaller.</li>
+                <li><strong>Left stick:</strong> Rotate the splat horizontally or vertically.</li>
+                <li><strong>Left trigger + left stick up/down:</strong> Push or pull the splat forward and backward in depth.</li>
+                <li><strong>Left X / Y:</strong> Step scale down or up.</li>
+                <li><strong>Left stick click:</strong> Reset splat rotation.</li>
+                <li><strong>Right stick click:</strong> Reset the VR view and splat transform.</li>
+                <li><strong>Right A / B:</strong> Previous or next splat.</li>
               </ul>
             </Section>
             <div class="controls-section-divider" />
@@ -206,6 +226,12 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
             <Section title="Collections" isOpen={isSubsectionOpen('troubleshooting.collections')}>
               <ul>
                 <li><strong>Files not appearing:</strong> If using a connected cloud storage, make sure you have the correct permissions set up. For Supabase, you can set up a policy with "select" permissions for the relevant table. For R2, make sure your access key and secret key are correct, and be sure to add a CORS policy under "settings".</li>
+              </ul>
+            </Section>
+
+            <Section title="VR" isOpen={isSubsectionOpen('troubleshooting.vr')}>
+              <ul>
+                <li><strong>VR view misaligned:</strong> If your scenes have multiple custom camera poses, but you notice that the VR view doesn't align correctly with the splat, this is likely due to a known issue with how we handle multiple custom views. As a workaround, you can switch to the desired custom camera pose, and then save a new VR view. This will capture the correct alignment for that pose. You can then switch between your saved VR view and custom camera poses as needed.</li> 
               </ul>
             </Section>
           </Section>

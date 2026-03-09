@@ -26,17 +26,17 @@ export function useBatchPreview(options = {}) {
   const [batchPreviewModalOpen, setBatchPreviewModalOpen] = useState(false);
   const [batchResult, setBatchResult] = useState(null); // { success, failed, skipped }
 
-  const nonProxyAssetCount = useMemo(
-    () => assets.filter((asset) => !asset?.isProxyView).length,
+  const nonViewInstanceAssetCount = useMemo(
+    () => assets.filter((asset) => !asset?.isViewInstance).length,
     [assets],
   );
 
   const missingPreviewCount = useMemo(
-    () => assets.filter((asset) => !asset?.isProxyView && !asset?.preview).length,
+    () => assets.filter((asset) => !asset?.isViewInstance && !asset?.preview).length,
     [assets],
   );
 
-  const canBatchGeneratePreviews = nonProxyAssetCount > 1;
+  const canBatchGeneratePreviews = nonViewInstanceAssetCount > 1;
 
   const refreshAssets = useCallback(() => {
     const freshAssets = getAssetList();
@@ -48,7 +48,7 @@ export function useBatchPreview(options = {}) {
   /** Kick off the actual generation run */
   const startGenerateAllPreviews = useCallback(async () => {
     if (!canBatchGeneratePreviews) {
-      addLog('[BatchPreview] Needs at least 2 non-proxy assets');
+      addLog('[BatchPreview] Needs at least 2 non-view-instance assets');
       return;
     }
 
@@ -85,7 +85,7 @@ export function useBatchPreview(options = {}) {
 
   const handleOpenBatchPreviewModal = useCallback(() => {
     if (!canBatchGeneratePreviews) {
-      addLog('[BatchPreview] Needs at least 2 non-proxy assets');
+      addLog('[BatchPreview] Needs at least 2 non-view-instance assets');
       return;
     }
     setBatchResult(null);
@@ -115,7 +115,7 @@ export function useBatchPreview(options = {}) {
     batchResult,
     canBatchGeneratePreviews,
     missingPreviewCount,
-    nonProxyAssetCount,
+    nonViewInstanceAssetCount,
     handleOpenBatchPreviewModal,
     handleConfirmBatchPreview,
     handleAbortBatchPreview,

@@ -97,6 +97,7 @@ export const startSmoothResetAnimation = (targetState, { duration = 800, onCompl
   const startState = {
     position: camera.position.clone(),
     quaternion: camera.quaternion.clone(),
+    up: camera.up.clone(),
     fov: camera.fov,
     near: camera.near,
     far: camera.far,
@@ -117,6 +118,9 @@ export const startSmoothResetAnimation = (targetState, { duration = 800, onCompl
 
     camera.position.lerpVectors(startState.position, targetState.position, eased);
     camera.quaternion.slerpQuaternions(startState.quaternion, targetState.quaternion, eased);
+    if (startState.up && targetState.up) {
+      camera.up.lerpVectors(startState.up, targetState.up, eased).normalize();
+    }
     camera.fov = THREE.MathUtils.lerp(startState.fov, targetState.fov, eased);
     camera.near = THREE.MathUtils.lerp(startState.near, targetState.near, eased);
     camera.far = THREE.MathUtils.lerp(startState.far, targetState.far, eased);

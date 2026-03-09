@@ -34,6 +34,7 @@ export const saveHomeView = () => {
   homeView = {
     cameraPosition: camera.position.clone(),
     cameraQuaternion: camera.quaternion.clone(),
+    cameraUp: camera.up.clone(),
     cameraFov: camera.fov,
     cameraNear: camera.near,
     cameraFar: camera.far,
@@ -55,6 +56,7 @@ export const restoreHomeView = () => {
   const targetState = {
     position: homeView.cameraPosition.clone(),
     quaternion: homeView.cameraQuaternion.clone(),
+    up: homeView.cameraUp?.clone?.() ?? camera.up.clone(),
     fov: homeView.cameraFov,
     near: homeView.cameraNear,
     far: homeView.cameraFar,
@@ -72,6 +74,9 @@ export const restoreHomeView = () => {
     // Apply reset instantly without animation
     camera.position.copy(targetState.position);
     camera.quaternion.copy(targetState.quaternion);
+    if (targetState.up) {
+      camera.up.copy(targetState.up);
+    }
     camera.fov = targetState.fov;
     camera.near = targetState.near;
     camera.far = targetState.far;
@@ -148,6 +153,7 @@ export const applyFocusDistanceOverride = (distance) => {
 export const captureCameraPose = () => ({
   position: camera.position.clone(),
   quaternion: camera.quaternion.clone(),
+  up: camera.up.clone(),
   fov: camera.fov,
   near: camera.near,
   far: camera.far,
@@ -157,6 +163,9 @@ export const captureCameraPose = () => ({
 
 export const applyCameraPose = (pose) => {
   if (!pose) return;
+  if (pose.up) {
+    camera.up.copy(pose.up);
+  }
   camera.position.copy(pose.position);
   camera.quaternion.copy(pose.quaternion);
   camera.fov = pose.fov;
@@ -166,6 +175,8 @@ export const applyCameraPose = (pose) => {
   camera.updateProjectionMatrix();
   controls.target.copy(pose.target);
   controls.update();
+  camera.updateMatrix();
+  camera.updateMatrixWorld(true);
   updateDollyZoomBaselineFromCamera();
 };
 
@@ -209,6 +220,7 @@ const runCameraPoseTransition = (targetPose, options = {}) => new Promise((resol
   const duration = getTransitionDurationMs(options);
 
   const finalize = () => {
+    applyCameraPose(targetPose);
     updateDollyZoomBaselineFromCamera();
     requestRender();
     if (typeof options.onComplete === "function") {
@@ -506,6 +518,9 @@ export const clearMetadataCamera = (resize) => {
   camera.near = defaultCamera.near;
   camera.far = defaultCamera.far;
   camera.updateProjectionMatrix();
+  // Sync OrbitControls' internal spherical state with the reset camera so
+  // subsequent pose applications start from a clean baseline.
+  controls.update();
   if (resize) resize();
 };
 

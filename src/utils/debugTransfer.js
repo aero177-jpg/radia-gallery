@@ -178,7 +178,7 @@ const buildNameMatcher = (names) => {
       if (!name) return false;
       const s = String(name);
       if (set.has(s)) return true;
-      // Proxy-view storage keys use "baseName::viewId" — match the base
+      // View-instance storage keys use "baseName::viewId" — match the base
       // portion so preview blobs and file settings for views are included.
       const sep = s.indexOf('::');
       if (sep > 0) return set.has(s.slice(0, sep));
