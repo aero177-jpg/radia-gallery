@@ -45,6 +45,9 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: `${base}index.html`,
+        navigateFallbackDenylist: [
+          /\/embed\.html(?:\?.*)?$/,
+        ],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff2}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024
       }
