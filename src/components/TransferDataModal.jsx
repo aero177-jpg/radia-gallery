@@ -211,7 +211,9 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
             activeSourceId: scopeContext?.activeSourceId || null,
             activeSourceType: scopeContext?.activeSourceType || null,
             assetNames: scopeContext?.assetNames || [],
+            assetEntries: scopeContext?.assetEntries || [],
             collectionName: scopeContext?.collectionName || 'Current collection',
+            sourceConfig: scopeContext?.sourceConfig || null,
           },
         }
       : transferOptions;
@@ -592,6 +594,7 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
           </div>
         </div>
       </details>
+
     </div>
   );
 }
@@ -660,6 +663,29 @@ function TransferDataModal({ isOpen, onClose, addLog }) {
     return Array.from(new Set(fallbackNames));
   }, [activeSource, activeSourceId, assets]);
 
+  const currentCollectionAssetEntries = useMemo(() => {
+    const sourceAssets = typeof activeSource?.getAssets === 'function' ? activeSource.getAssets() : [];
+    if (Array.isArray(sourceAssets) && sourceAssets.length > 0) {
+      return sourceAssets
+        .filter((asset) => asset?.name)
+        .map((asset) => ({
+          name: asset.name,
+          path: asset.path || '',
+          preview: asset.preview || null,
+          size: asset.size ?? null,
+        }));
+    }
+
+    return (assets || [])
+      .filter((asset) => asset?.sourceId === activeSourceId && asset?.name)
+      .map((asset) => ({
+        name: asset.name,
+        path: asset.path || '',
+        preview: asset.preview || null,
+        size: asset.size ?? null,
+      }));
+  }, [activeSource, activeSourceId, assets]);
+
   const currentCollectionScope = useMemo(() => {
     if (!currentCollectionEnabled) return null;
     return {
@@ -668,8 +694,10 @@ function TransferDataModal({ isOpen, onClose, addLog }) {
       activeSourceType: activeSource?.type || null,
       collectionName: activeSource?.name || 'Current collection',
       assetNames: currentCollectionAssetNames,
+      assetEntries: currentCollectionAssetEntries,
+      sourceConfig: typeof activeSource?.toJSON === 'function' ? activeSource.toJSON() : null,
     };
-  }, [activeSource, activeSourceId, currentCollectionAssetNames, currentCollectionEnabled]);
+  }, [activeSource, activeSourceId, currentCollectionAssetEntries, currentCollectionAssetNames, currentCollectionEnabled]);
 
   const handleClose = useCallback(() => {
     setPage(null);

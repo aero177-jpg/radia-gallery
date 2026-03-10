@@ -9,6 +9,7 @@ import { useStore } from '../store';
 import CameraControls from './CameraControls';
 import AnimationSettings from './AnimationSettings';
 import DebugSettings from './DebugSettings';
+import SharingSettings from './SharingSettings.jsx';
 import StorageSourceList from './StorageSourceList';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import { loadFromStorageSource, resize } from '../fileLoader';
@@ -271,6 +272,7 @@ function SidePanel() {
           onSelectSource={handleSelectSource}
           onOpenCloudGpu={handleOpenCloudGpuDialog}
         />
+        <SharingSettings />
         <DebugSettings />
       </div>
       

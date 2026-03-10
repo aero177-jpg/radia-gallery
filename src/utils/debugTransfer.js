@@ -41,6 +41,7 @@ import {
 } from '../fileStorage.js';
 
 const EXPORT_SCHEMA_VERSION = 1;
+const EMBED_SCHEMA_VERSION = 1;
 const SUPPORTED_TRANSFER_APPS = new Set(['radia-gallery', 'radia-viewer']);
 
 const isSupportedTransferApp = (value) =>
@@ -184,6 +185,220 @@ const buildNameMatcher = (names) => {
       if (sep > 0) return set.has(s.slice(0, sep));
       return false;
     },
+  };
+};
+
+const readLocalStorageJson = (key, fallback = null) => {
+  if (typeof window === 'undefined' || !window.localStorage) return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+};
+
+const resolveScopedSourceConfig = async (exportScope, explicitSourceConfig = null) => {
+  if (explicitSourceConfig?.id) return explicitSourceConfig;
+
+  const scopedSourceId = exportScope?.activeSourceId || null;
+  if (!scopedSourceId) return null;
+
+  const allSources = await loadAllSources();
+  return allSources.find((config) => config?.id === scopedSourceId) || null;
+};
+
+const deriveManifestBaseUrl = (sourceConfig) => {
+  const configuredBaseUrl = String(sourceConfig?.config?.baseUrl || '').trim();
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  const manifestUrl = String(sourceConfig?.config?.manifestUrl || '').trim();
+  if (manifestUrl) {
+    try {
+      return new URL('./', manifestUrl).href;
+    } catch {
+      return '';
+    }
+  }
+
+  return '';
+};
+
+const sanitizeEmbedFileSettings = (record) => {
+  if (!record || typeof record !== 'object') return null;
+
+  const next = {
+    fileName: record.fileName,
+  };
+
+  if (record.animation && typeof record.animation === 'object') {
+    next.animation = record.animation;
+  }
+  if (record.customAnimation && typeof record.customAnimation === 'object') {
+    next.customAnimation = record.customAnimation;
+  }
+  if (record.viewCustomAnimations && typeof record.viewCustomAnimations === 'object') {
+    next.viewCustomAnimations = record.viewCustomAnimations;
+  }
+  if (typeof record.annotation === 'string' && record.annotation) {
+    next.annotation = record.annotation;
+  }
+  if (record.focusDistance !== undefined) {
+    next.focusDistance = record.focusDistance;
+  }
+  if (record.customMetadata && typeof record.customMetadata === 'object') {
+    next.customMetadata = record.customMetadata;
+  }
+
+  return Object.keys(next).length > 1 ? next : null;
+};
+
+const buildEmbedAssetMetadata = (record) => {
+  if (!record) return null;
+
+  const metadata = {};
+  if (record.animation) metadata.animation = record.animation;
+  if (record.customAnimation) metadata.customAnimation = record.customAnimation;
+  if (typeof record.annotation === 'string' && record.annotation) metadata.annotation = record.annotation;
+  if (record.focusDistance !== undefined) metadata.focusDistance = record.focusDistance;
+
+  return Object.keys(metadata).length > 0 ? metadata : null;
+};
+
+const buildEmbedAssetEntries = (exportScope, scopeNameMatcher) => {
+  if (!Array.isArray(exportScope?.assetEntries)) return [];
+
+  return exportScope.assetEntries
+    .filter((asset) => {
+      if (!scopeNameMatcher.hasNames) return true;
+      return scopeNameMatcher.has(asset?.name);
+    })
+    .map((asset) => ({
+      name: asset?.name || '',
+      path: asset?.path || '',
+      preview: asset?.preview || null,
+      size: asset?.size ?? null,
+    }))
+    .filter((asset) => asset.name || asset.path);
+};
+
+const buildEmbedCollectionPayload = async (options = {}) => {
+  const exportScope = options?.exportScope || {};
+  if (exportScope?.mode !== 'current-collection') {
+    throw new Error('Embed export only supports the current collection scope.');
+  }
+
+  const sourceConfig = await resolveScopedSourceConfig(exportScope, options?.sourceConfig || exportScope?.sourceConfig || null);
+  if (!sourceConfig?.id) {
+    throw new Error('Current collection source is unavailable.');
+  }
+
+  if (sourceConfig.type !== 'public-url') {
+    throw new Error('Embed export only supports public URL collections.');
+  }
+
+  const assetNames = normalizeNameList(exportScope?.assetNames || []);
+  const scopeNameMatcher = buildNameMatcher(assetNames);
+  const assetEntries = buildEmbedAssetEntries(exportScope, scopeNameMatcher);
+
+  if (!assetEntries.length) {
+    throw new Error('Current collection does not contain any exportable assets.');
+  }
+
+  let fileSettings = [];
+  if (options.includeFileSettings !== false) {
+    const allFileSettings = await listAllFileSettings();
+    fileSettings = scopeNameMatcher.hasNames
+      ? allFileSettings.filter((record) => scopeNameMatcher.has(record?.fileName))
+      : [];
+  }
+
+  const sanitizedFileSettings = fileSettings
+    .map((record) => sanitizeEmbedFileSettings(record))
+    .filter(Boolean);
+  const fileSettingsByName = new Map(sanitizedFileSettings.map((record) => [record.fileName, record]));
+
+  const manifestBaseUrl = deriveManifestBaseUrl(sourceConfig);
+  const manifest = {
+    version: 1,
+    name: exportScope?.collectionName || sourceConfig?.name || 'Current collection',
+    assets: assetEntries.map((asset) => {
+      const embedFileSettings = fileSettingsByName.get(asset.name) || null;
+      const nextAsset = {
+        name: asset.name || '',
+        path: asset.path || '',
+        size: asset.size ?? null,
+      };
+
+      if (asset.preview) {
+        nextAsset.preview = asset.preview;
+      }
+
+      const metadata = buildEmbedAssetMetadata(embedFileSettings);
+      if (metadata) {
+        nextAsset.metadata = metadata;
+      }
+      if (embedFileSettings) {
+        nextAsset.embedFileSettings = embedFileSettings;
+      }
+
+      return nextAsset;
+    }),
+  };
+
+  const uiPreferences = options.includeUiPreferences === false
+    ? null
+    : (options.uiPreferences || readLocalStorageJson(UI_PREFERENCES_KEY, null));
+
+  const requestedCameraRange = Number(options?.viewerSettings?.cameraRange);
+  const viewerSettings = {
+    qualityPreset: 'performance',
+    cameraRange: Number.isFinite(requestedCameraRange) ? requestedCameraRange : 8,
+  };
+
+  const sourceAssetPaths = Array.from(new Set(assetEntries.map((asset) => String(asset.path || '').trim()).filter(Boolean)));
+  const source = {
+    id: sourceConfig.id,
+    type: 'public-url',
+    name: sourceConfig.name || exportScope?.collectionName || 'Current collection',
+    config: {
+      manifestUrl: String(sourceConfig?.config?.manifestUrl || '').trim(),
+      baseUrl: manifestBaseUrl,
+      assetPaths: sourceAssetPaths,
+    },
+  };
+
+  const posterAsset = manifest.assets.find((asset) => asset?.preview) || manifest.assets[0] || null;
+  const notes = [];
+  if (!posterAsset?.preview) {
+    notes.push('No preview image is available for the default poster.');
+  }
+
+  return {
+    schemaVersion: EMBED_SCHEMA_VERSION,
+    app: 'radia-gallery-embed',
+    exportedAt: new Date().toISOString(),
+    collection: {
+      mode: 'current-collection',
+      name: exportScope?.collectionName || sourceConfig?.name || 'Current collection',
+      assetCount: manifest.assets.length,
+    },
+    source,
+    manifest,
+    poster: posterAsset
+      ? {
+          fileName: posterAsset.name || null,
+          path: posterAsset.path || null,
+          previewUrl: posterAsset.preview || null,
+        }
+      : null,
+    viewerSettings,
+    uiPreferences,
+    fileSettings: sanitizedFileSettings,
+    notes,
   };
 };
 
@@ -351,6 +566,81 @@ export const buildTransferJson = async (options) => {
   const { manifest } = await buildZipFileMap(jsonOptions);
   const json = JSON.stringify(manifest, null, 2);
   return { json, manifest };
+};
+
+export const buildEmbedManifest = async (options = {}) => {
+  return buildEmbedCollectionPayload(options);
+};
+
+export const buildEmbedManifestJson = async (options = {}) => {
+  const manifest = await buildEmbedManifest(options);
+  return {
+    manifest,
+    json: JSON.stringify(manifest, null, 2),
+  };
+};
+
+export const buildEmbedBundle = async (options = {}) => {
+  const manifest = await buildEmbedCollectionPayload(options);
+  const files = {};
+  const includePreviews = options.includeFilePreviews !== false;
+
+  if (includePreviews) {
+    const assetNames = normalizeNameList(options?.exportScope?.assetNames || []);
+    const scopeNameMatcher = buildNameMatcher(assetNames);
+    const previewRecords = await listPreviewRecords();
+    const scopedPreviewRecords = scopeNameMatcher.hasNames
+      ? previewRecords.filter((record) => scopeNameMatcher.has(record?.fileName))
+      : [];
+    const previewPathByName = new Map();
+
+    for (let index = 0; index < scopedPreviewRecords.length; index += 1) {
+      const record = scopedPreviewRecords[index];
+      const safeName = sanitizeFileName(record.fileName).replace(/\.[a-z0-9]+$/i, '');
+      const ext = normalizePreviewExtension(record.format);
+      const previewPath = `previews/${index}-${safeName}.${ext}`;
+      const buffer = await record.blob.arrayBuffer();
+      files[previewPath] = new Uint8Array(buffer);
+      previewPathByName.set(record.fileName, previewPath);
+    }
+
+    manifest.manifest = {
+      ...manifest.manifest,
+      assets: manifest.manifest.assets.map((asset) => {
+        const bundledPreviewPath = previewPathByName.get(asset.name);
+        if (!bundledPreviewPath) {
+          return asset;
+        }
+        return {
+          ...asset,
+          preview: bundledPreviewPath,
+        };
+      }),
+    };
+
+    const posterPreviewPath = manifest.poster?.fileName
+      ? previewPathByName.get(manifest.poster.fileName)
+      : null;
+    if (posterPreviewPath && manifest.poster) {
+      manifest.poster = {
+        ...manifest.poster,
+        previewUrl: posterPreviewPath,
+      };
+    }
+
+    if (previewPathByName.size === 0) {
+      manifest.notes = [
+        ...(Array.isArray(manifest.notes) ? manifest.notes : []),
+        'No stored preview images were available to bundle into the ZIP.',
+      ];
+    }
+  }
+
+  files['manifest.json'] = strToU8(JSON.stringify(manifest, null, 2));
+
+  const zipData = zipSync(files, { level: 6 });
+  const blob = new Blob([zipData], { type: 'application/zip' });
+  return { blob, manifest };
 };
 
 const countLocalStorageKeysByPrefix = (prefix) => {
