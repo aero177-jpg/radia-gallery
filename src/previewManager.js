@@ -1,7 +1,6 @@
 /**
  * Preview management: hydration, encoding, capture registration.
  */
-import { loadPreviewBlob } from "./fileStorage.js";
 import { setCapturePreviewFn } from "./assetManager.js";
 import { scene, renderer, composer, currentMesh, forceRenderNow, THREE, bgImageUrl } from "./viewer.js";
 
@@ -36,6 +35,9 @@ export const replacePreviewUrl = (asset, url) => {
 
 export const hydrateAssetPreviewFromStorage = async (asset) => {
   if (!asset || asset.preview) return null;
+  if (asset.skipStoredPreviewHydration) return null;
+
+  const { loadPreviewBlob } = await import('./fileStorage.js');
   const preferredKey = asset.previewStorageKey || asset.name;
   let storedPreview = await loadPreviewBlob(asset.name, preferredKey);
   if (!storedPreview && preferredKey !== asset.name) {

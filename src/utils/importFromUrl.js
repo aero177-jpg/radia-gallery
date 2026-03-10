@@ -7,6 +7,22 @@ import { validateTransferBundle, validateTransferManifest, importTransferBundleF
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
+export const resolveImportPayloadUrl = (url) => {
+  if (!url || typeof url !== 'string') return '';
+
+  const trimmed = url.trim();
+  try {
+    const parsed = new URL(trimmed);
+    const importValue = parsed.searchParams.get('import');
+    if (importValue) {
+      return decodeURIComponent(importValue);
+    }
+    return trimmed;
+  } catch {
+    return trimmed;
+  }
+};
+
 export const extractTransferManifestFromPayload = (payload) => {
   const seen = new Set();
   const queue = [payload];
@@ -179,6 +195,16 @@ export const importBundleFromUrl = async (url, { maxBytes = DEFAULT_MAX_BYTES } 
 export const buildShareLink = (zipUrl) => {
   const base = window.location.origin;
   return `${base}?import=${encodeURIComponent(zipUrl.trim())}`;
+};
+
+/**
+ * Build a shareable embed URL from a hosted transfer or embed payload URL.
+ * Uses embed.html with a ?payload= query parameter.
+ */
+export const buildEmbedLink = (payloadUrl) => {
+  const target = new URL('embed.html', window.location.href);
+  target.searchParams.set('payload', resolveImportPayloadUrl(payloadUrl));
+  return target.toString();
 };
 
 /**

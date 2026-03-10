@@ -9,6 +9,7 @@ import { useStore } from '../store';
 import CameraControls from './CameraControls';
 import DebugSettings from './DebugSettings';
 import AnimationSettings from './AnimationSettings';
+import SharingSettings from './SharingSettings.jsx';
 import StorageSourceList from './StorageSourceList';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import { getFormatAccept } from '../formats/index';
@@ -174,7 +175,8 @@ function MobileSheet() {
           onSelectSource={handleSelectSource}
           onOpenCloudGpu={handleOpenCloudGpuDialog}
         />
-                <DebugSettings />
+        <SharingSettings />
+        <DebugSettings />
 
         {/* <AssetGallery /> */}
       </div>

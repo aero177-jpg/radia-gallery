@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { VitePWA } from 'vite-plugin-pwa'
+import { resolve } from 'node:path'
 
 const normalizeBasePath = (value) => {
   const text = String(value || '/').trim();
@@ -51,6 +52,14 @@ export default defineConfig({
   ],
   // Use BASE_PATH environment variable, defaulting to '/'
   base,
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        embed: resolve(__dirname, 'embed.html'),
+      },
+    },
+  },
   server: {
     https: false,
     host: true

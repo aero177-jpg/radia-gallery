@@ -204,7 +204,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                   modal.com
                 </a>{' '} using their free tier. It connects to this viewer for seamless uploads and processing.
                  If you are in a supabase or r2 collection, the results will be send to your storage and automatically added to the viewer. Otherwise, the files will be downloaded to your device to manually be added. 
-                 <br/><br/>If you are in a temporary collection, your downloaded files will be removed when you exit, be sure to go to advanced settings and click "Export splats".
+                 <br/><br/>If you are in a temporary collection, your downloaded files will be removed when you exit, be sure to go to advanced settings and click "Export scenes".
               </p>
 
             </Section>

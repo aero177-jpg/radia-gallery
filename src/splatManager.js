@@ -6,7 +6,6 @@
 
 import { scene, THREE } from "./viewer.js";
 import { getFormatHandler } from "./formats/index.js";
-import { loadFileSettings } from "./fileStorage.js";
 
 let splatGroup = null;
 const cache = new Map();
@@ -55,6 +54,10 @@ const disposeEntry = (entry) => {
  */
 const ensureAssetFile = async (asset) => {
   if (asset.file) return asset.file;
+
+  if (asset._transientSource && asset._remoteAsset) {
+    return asset._transientSource.fetchAssetFile(asset._remoteAsset);
+  }
   
   // Check if this is a storage source asset
   if (asset.sourceId && asset._remoteAsset) {
@@ -95,7 +98,13 @@ const createEntry = async (asset) => {
 
   // Try to load metadata from storage source
   let sourceMetadata = null;
-  if (asset.sourceId && asset._remoteAsset) {
+  if (asset._transientSource && asset._remoteAsset) {
+    try {
+      sourceMetadata = await asset._transientSource.fetchMetadata(asset._remoteAsset);
+    } catch (err) {
+      console.warn(`[SplatManager] Failed to load transient source metadata for ${asset.name}:`, err);
+    }
+  } else if (asset.sourceId && asset._remoteAsset) {
     try {
       const { loadAssetMetadata } = await import("./storage/sourceAssetAdapter.js");
       sourceMetadata = await loadAssetMetadata(asset);
@@ -109,11 +118,14 @@ const createEntry = async (asset) => {
   mesh.userData.assetId = getCacheKey(asset);
   ensureGroup().add(mesh);
 
-  let storedSettings = null;
-  try {
-    storedSettings = await loadFileSettings(asset.name);
-  } catch (err) {
-    console.warn(`[SplatManager] Failed to read stored settings for ${asset.name}:`, err);
+  let storedSettings = asset._embedFileSettings ? { ...asset._embedFileSettings } : null;
+  if (!asset.skipStoredSettingsHydration) {
+    try {
+      const { loadFileSettings } = await import('./fileStorage.js');
+      storedSettings = await loadFileSettings(asset.name);
+    } catch (err) {
+      console.warn(`[SplatManager] Failed to read stored settings for ${asset.name}:`, err);
+    }
   }
 
   // Merge source metadata with stored settings (source takes precedence for camera)

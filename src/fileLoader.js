@@ -416,7 +416,7 @@ const syncViewInstancesForAssetList = async (store, { onlyBaseIds } = {}) => {
 export const resolveAssetView = async (asset) => {
   const assetName = getBaseAssetName(asset);
   if (!assetName) return { metadata: null, views: [], selectedView: null };
-  const metadata = await loadCustomMetadataForAsset(assetName);
+  const metadata = asset?._embedFileSettings?.customMetadata || await loadCustomMetadataForAsset(assetName);
   const views = metadata?.views ?? [];
   let selectedView = null;
   if (views.length > 0) {
@@ -638,7 +638,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   // Stamp a generation so we can detect when a newer load has superseded this one
   const thisGeneration = ++loadGeneration;
 
-  await hydrateAssetPreviewFromStorage(asset);
+  if (!asset.skipStoredPreviewHydration) {
+    await hydrateAssetPreviewFromStorage(asset);
+  }
 
   // Bail out if a newer load started while we awaited preview hydration
   if (loadGeneration !== thisGeneration) return;
