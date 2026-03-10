@@ -21,6 +21,8 @@ import {
   setVrViewInstanceCallback,
 } from "./fileLoader.js";
 import { getSplatCache } from "./splatManager.js";
+import { saveVrPivotLocalPoint } from "./fileStorage.js";
+import { updateVrPivotLocalPointInCache } from "./splatManager.js";
 
 let vrButton = null;
 let xrHands = null;
@@ -38,6 +40,8 @@ let grabTempMatrix2 = null;
 let grabTargetPos = null;
 let grabTargetQuat = null;
 let grabTargetScale = null;
+let activeVrPivotLocalPoint = null;
+let persistingVrPivot = false;
 
 // Quest controller button indices (xr-standard mapping, per controller)
 const BTN_TRIGGER = 0;
@@ -52,7 +56,7 @@ const AXIS_THUMBSTICK_X = 2;
 const AXIS_THUMBSTICK_Y = 3;
 
 // Tuning constants
-const VR_BASELINE_SCALE = 0.25; // initial model size in VR relative to default
+const VR_BASELINE_SCALE = 0.25; // initial VR scale multiplier for custom-metadata assets
 const SCALE_STEP = 1.5; // for button presses
 const MIN_SCALE = 0.02;
 const MAX_SCALE = 20.0;
@@ -90,12 +94,15 @@ let lastNextMs = 0;
 let lastPrevMs = 0;
 let lastScaleUpMs = 0;
 let lastScaleDownMs = 0;
+let lastPivotSaveMs = 0;
+let leftTriggerWasPressed = false;
 
 let vrSupportCheckPromise = null;
 let preVrCameraNear = null;
 let preVrCameraFar = null;
 let activeVrBaseAssetId = null;
 let activeVrSceneMode = null;
+let reloadPageAfterVrExit = false;
 
 const MIN_VR_NEAR_CLIP = 0.001;
 const MAX_VR_NEAR_CLIP = 1;
@@ -137,11 +144,130 @@ const getSavedVrFarClipForAsset = (asset) => {
   return Number.isFinite(vrFarClip) ? clampVrFarClip(vrFarClip) : null;
 };
 
+const getSavedVrPivotLocalPointForAsset = (asset) => {
+  if (!asset) return null;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache()?.get(cacheKey);
+  const vrPivotLocalPoint = entry?.storedSettings?.vrPivotLocalPoint;
+  if (!Array.isArray(vrPivotLocalPoint) || vrPivotLocalPoint.length !== 3) {
+    return null;
+  }
+
+  const [x, y, z] = vrPivotLocalPoint;
+  if (![x, y, z].every((value) => Number.isFinite(value))) {
+    return null;
+  }
+
+  return new THREE.Vector3(x, y, z);
+};
+
+const getResolvedVrPivotWorldPoint = () => {
+  if (!currentMesh || !activeVrPivotLocalPoint) return null;
+  currentMesh.updateMatrixWorld(true);
+  return currentMesh.localToWorld(activeVrPivotLocalPoint.clone());
+};
+
+const setVrPivotStatusMessage = (message = "") => {
+  useStore.getState().setVrPivotStatusMessage(message);
+};
+
+const persistVrPivotLocalPoint = async (localPoint) => {
+  const store = useStore.getState();
+  const asset = store.currentAssetIndex >= 0 ? store.assets[store.currentAssetIndex] : null;
+  if (!asset || !localPoint) return false;
+
+  const baseName = asset.baseAssetName || asset.name;
+  const baseAssetId = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  if (!baseName || baseName === "-") return false;
+
+  const localPointArray = localPoint.toArray();
+  const saved = await saveVrPivotLocalPoint(baseName, localPointArray);
+  if (!saved) return false;
+
+  if (baseAssetId) {
+    updateVrPivotLocalPointInCache(baseAssetId, localPointArray);
+  }
+
+  return true;
+};
+
+const commitVrPivotLocalPoint = async (localPoint) => {
+  if (!currentMesh || !localPoint) return false;
+  if (persistingVrPivot) return false;
+
+  persistingVrPivot = true;
+  activeVrPivotLocalPoint = localPoint.clone();
+  setVrPivotStatusMessage("Saving pivot...");
+
+  try {
+    const saved = await persistVrPivotLocalPoint(localPoint);
+    const pointText = localPoint.toArray().map((value) => value.toFixed(2)).join(", ");
+
+    if (saved) {
+      useStore.getState().addLog(`VR pivot updated: ${pointText}`);
+      setVrPivotStatusMessage("Pivot updated.");
+      requestRender();
+      return true;
+    }
+
+    useStore.getState().addLog("Failed to persist VR pivot point.");
+    setVrPivotStatusMessage("Pivot update failed.");
+    return false;
+  } finally {
+    persistingVrPivot = false;
+  }
+};
+
+const rotateModelAroundVrPivot = (axis, rotationAmount) => {
+  if (!currentMesh || !Number.isFinite(rotationAmount) || Math.abs(rotationAmount) < 1e-6) return;
+
+  const pivot = getResolvedVrPivotWorldPoint() ?? controls?.target?.clone() ?? currentMesh.position.clone();
+  if (!pivot) return;
+
+  const offset = currentMesh.position.clone().sub(pivot);
+  offset.applyAxisAngle(axis, rotationAmount);
+  currentMesh.position.copy(pivot).add(offset);
+  currentMesh.rotateOnWorldAxis(axis, rotationAmount);
+  requestRender();
+};
+
+const applyScaleRatioAroundVrPivot = (ratio, nextScale) => {
+  const store = useStore.getState();
+  if (!currentMesh || !initialModelScale) return;
+  if (!Number.isFinite(ratio) || Math.abs(ratio - 1) < 1e-6) return;
+
+  const pivotBefore = getResolvedVrPivotWorldPoint();
+  if (!pivotBefore) {
+    currentMesh.scale.multiplyScalar(ratio);
+    store.setVrModelScale(nextScale);
+    requestRender();
+    return;
+  }
+
+  currentMesh.scale.multiplyScalar(ratio);
+  currentMesh.updateMatrixWorld(true);
+  const pivotAfter = getResolvedVrPivotWorldPoint();
+  if (!pivotAfter) return;
+
+  currentMesh.position.add(pivotBefore.sub(pivotAfter));
+  store.setVrModelScale(nextScale);
+  requestRender();
+};
+
 const getVrSceneMode = () => {
   const store = useStore.getState();
   if (store.customMetadataAvailable) return "custom-metadata";
   if (store.metadataMissing) return "metadata-missing";
   return "built-in-metadata";
+};
+
+const forcePageReload = () => {
+  try {
+    window.location.replace(window.location.href);
+  } catch (err) {
+    console.warn("VR page reload fallback triggered:", err);
+    window.location.reload();
+  }
 };
 
 const applyVrClipPlanes = ({ nearClip, farClip } = {}) => {
@@ -253,9 +379,7 @@ const scaleModel = (multiplier) => {
   if (nextScale === prevScale) return;
 
   const ratio = nextScale / prevScale;
-  currentMesh.scale.multiplyScalar(ratio);
-  store.setVrModelScale(nextScale);
-  requestRender();
+  applyScaleRatioAroundVrPivot(ratio, nextScale);
 };
 
 const scaleModelSmooth = (input, dt) => {
@@ -268,9 +392,7 @@ const scaleModelSmooth = (input, dt) => {
   const nextScale = THREE.MathUtils.clamp(prevScale * ratio, MIN_SCALE, MAX_SCALE);
   if (Math.abs(nextScale - prevScale) < 1e-5) return;
 
-  currentMesh.scale.multiplyScalar(nextScale / prevScale);
-  store.setVrModelScale(nextScale);
-  requestRender();
+  applyScaleRatioAroundVrPivot(nextScale / prevScale, nextScale);
 };
 
 const restoreModelTransform = () => {
@@ -299,6 +421,7 @@ const clearControllerSelection = (controller) => {
   controller.userData.selected = undefined;
   controller.userData.selectedParent = undefined;
   controller.userData.grabOffset = undefined;
+  controller.userData.grabHitLocalPoint = undefined;
   controller.userData.filteredPos = null;
   controller.userData.filteredQuat = null;
   controller.userData.targetRayMode = undefined;
@@ -327,10 +450,13 @@ const establishVrAssetBaseline = () => {
   }
 
   trueOriginalScale = currentMesh.scale.clone();
-  currentMesh.scale.copy(trueOriginalScale).multiplyScalar(VR_BASELINE_SCALE);
+  const baselineScaleMultiplier = store.customMetadataAvailable ? VR_BASELINE_SCALE : 1;
+  currentMesh.scale.copy(trueOriginalScale).multiplyScalar(baselineScaleMultiplier);
   initialModelScale = currentMesh.scale.clone();
   initialModelPosition = currentMesh.position.clone();
   initialModelQuaternion = currentMesh.quaternion.clone();
+  const asset = store.currentAssetIndex >= 0 ? store.assets[store.currentAssetIndex] : null;
+  activeVrPivotLocalPoint = getSavedVrPivotLocalPointForAsset(asset);
   store.setVrModelScale(1);
   requestRender();
 };
@@ -443,12 +569,14 @@ const handleGrabSelectStart = (event) => {
   if (controller?.userData?.handedness === "left") return;
   const intersections = getControllerIntersections(controller);
   if (!intersections.length) return;
+  const hit = intersections[0];
 
   controller.userData.selected = currentMesh;
   controller.userData.selectedParent = currentMesh.parent || scene;
   controller.updateMatrixWorld();
   grabTempMatrix.copy(controller.matrixWorld).invert();
   controller.userData.grabOffset = grabTempMatrix.multiply(currentMesh.matrixWorld).clone();
+  controller.userData.grabHitLocalPoint = hit?.point ? currentMesh.worldToLocal(hit.point.clone()) : undefined;
   controller.userData.filteredPos = null;
   controller.userData.filteredQuat = null;
   controller.userData.targetRayMode = event?.data?.targetRayMode;
@@ -467,6 +595,7 @@ const handleGrabSelectEnd = (event) => {
   controller.userData.selected = undefined;
   controller.userData.selectedParent = undefined;
   controller.userData.grabOffset = undefined;
+  controller.userData.grabHitLocalPoint = undefined;
   controller.userData.filteredPos = null;
   controller.userData.filteredQuat = null;
   requestRender();
@@ -651,9 +780,21 @@ const handleVrGamepadInput = (dt) => {
 
     // ===== LEFT CONTROLLER =====
     if (hand === "left") {
+      const rightGrabController = [controller1, controller2].find((controller) =>
+        controller?.userData?.handedness === "right" && controller?.userData?.selected,
+      );
       if (currentMesh) {
         const triggerValue = buttons[BTN_TRIGGER]?.value ?? 0;
         const triggerPressed = triggerValue > 0.1;
+        if (
+          triggerPressed
+          && !leftTriggerWasPressed
+          && rightGrabController?.userData?.grabHitLocalPoint
+          && now - lastPivotSaveMs > BUTTON_COOLDOWN_MS
+        ) {
+          lastPivotSaveMs = now;
+          void commitVrPivotLocalPoint(rightGrabController.userData.grabHitLocalPoint.clone());
+        }
         const curvedDepthY = applyStickCurve(stickY);
         const depthInput = triggerPressed ? curvedDepthY : 0;
         if (Math.abs(depthInput) > 0.01) {
@@ -664,15 +805,13 @@ const handleVrGamepadInput = (dt) => {
           currentMesh.position.addScaledVector(forward, depthDelta);
           requestRender();
         }
+        leftTriggerWasPressed = triggerPressed;
       }
 
       const triggerValue = buttons[BTN_TRIGGER]?.value ?? 0;
       const triggerPressed = triggerValue > 0.1;
 
       if (currentMesh && !triggerPressed) {
-        // Get rotation pivot point (use model center or controls target)
-        const pivot = controls?.target?.clone() ?? currentMesh.position.clone();
-
         const absX = Math.abs(stickX);
         const absY = Math.abs(stickY);
         const stickMagnitude = Math.sqrt(stickX * stickX + stickY * stickY);
@@ -690,32 +829,14 @@ const handleVrGamepadInput = (dt) => {
         const curvedRotY = applyStickCurve(stickY);
         if (lockedRotationAxis === 'x' && Math.abs(curvedRotX) > 0) {
           const rotationAmount = curvedRotX * ROTATION_SPEED * dt; // flipped direction
-          
-          // Rotate model around the pivot on world Y axis
-          const offset = currentMesh.position.clone().sub(pivot);
-          offset.applyAxisAngle(up, rotationAmount);
-          currentMesh.position.copy(pivot).add(offset);
-          
-          // Also rotate the model itself so it spins in place relative to pivot
-          currentMesh.rotateOnWorldAxis(up, rotationAmount);
-          
-          requestRender();
+          rotateModelAroundVrPivot(up, rotationAmount);
         }
 
         // Left thumbstick Y: rotate model around right axis (vertical tilt/pitch)
         // Flipped: Stick forward = tilt backward, stick back = tilt forward
         if (lockedRotationAxis === 'y' && Math.abs(curvedRotY) > 0) {
           const rotationAmount = -curvedRotY * ROTATION_SPEED * dt; // flipped direction
-
-          // Rotate model around the pivot on the right axis (pitch)
-          const offset = currentMesh.position.clone().sub(pivot);
-          offset.applyAxisAngle(right, rotationAmount);
-          currentMesh.position.copy(pivot).add(offset);
-
-          // Also rotate the model itself
-          currentMesh.rotateOnWorldAxis(right, rotationAmount);
-
-          requestRender();
+          rotateModelAroundVrPivot(right, rotationAmount);
         }
       }
 
@@ -824,6 +945,9 @@ const syncVrStateToCurrentAsset = (assetOverride = null, options = {}) => {
     establishVrAssetBaseline();
   }
 
+  activeVrPivotLocalPoint = getSavedVrPivotLocalPointForAsset(asset);
+  setVrPivotStatusMessage("");
+
   tryApplySavedVrView(asset);
   tryApplySavedVrClipPlanes(asset);
 
@@ -842,9 +966,11 @@ const handleSessionStart = () => {
   if (controls) controls.enabled = false;
   preVrCameraNear = camera?.near ?? null;
   preVrCameraFar = camera?.far ?? null;
+  leftTriggerWasPressed = false;
   ensureHands();
   ensureGrabControllers();
   setupVrAnimationLoop();
+  setVrPivotStatusMessage("");
 
   syncVrStateToCurrentAsset(null, { forceRebaseline: true });
 
@@ -878,6 +1004,9 @@ const handleSessionEnd = () => {
   preVrCameraFar = null;
   activeVrBaseAssetId = null;
   activeVrSceneMode = null;
+  activeVrPivotLocalPoint = null;
+  leftTriggerWasPressed = false;
+  setVrPivotStatusMessage("");
   
   // Restore camera to home view after VR session
   restoreHomeView();
@@ -885,6 +1014,11 @@ const handleSessionEnd = () => {
   resumeRenderLoop();
   requestRender();
   store.setVrSessionActive(false);
+
+  if (reloadPageAfterVrExit) {
+    reloadPageAfterVrExit = false;
+    forcePageReload();
+  }
 };
 
 const attachSessionListeners = () => {
@@ -967,21 +1101,17 @@ export const enterVrSession = async () => {
 export const exitVrSessionAndRefresh = async () => {
   const currentSession = renderer?.xr?.getSession?.();
   if (!currentSession) {
-    window.location.reload();
+    forcePageReload();
     return true;
   }
 
-  const handleEnd = () => {
-    window.location.reload();
-  };
-
-  currentSession.addEventListener("end", handleEnd, { once: true });
+  reloadPageAfterVrExit = true;
 
   try {
     await currentSession.end();
     return true;
   } catch (err) {
-    currentSession.removeEventListener("end", handleEnd);
+    reloadPageAfterVrExit = false;
     console.warn("Failed to end VR session:", err);
     return false;
   }

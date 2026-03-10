@@ -328,6 +328,18 @@ export const updateVrFarClipInCache = (assetId, vrFarClip) => {
   }
 };
 
+export const updateVrPivotLocalPointInCache = (assetId, vrPivotLocalPoint) => {
+  if (!assetId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  if (Array.isArray(vrPivotLocalPoint) && vrPivotLocalPoint.length === 3) {
+    entry.storedSettings.vrPivotLocalPoint = [...vrPivotLocalPoint];
+  } else {
+    delete entry.storedSettings.vrPivotLocalPoint;
+  }
+};
+
 export const activateSplatEntry = async (asset) => {
   const entry = await ensureSplatEntry(asset);
   if (!entry) return null;

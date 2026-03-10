@@ -562,6 +562,14 @@ export const hasSavedVrFarClipOverrideForAsset = (asset) => {
   return Number.isFinite(entry?.storedSettings?.vrFarClip);
 };
 
+export const hasSavedVrPivotOverrideForAsset = (asset) => {
+  if (!asset) return false;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache().get(cacheKey);
+  return Array.isArray(entry?.storedSettings?.vrPivotLocalPoint)
+    && entry.storedSettings.vrPivotLocalPoint.length === 3;
+};
+
 const syncStoredCustomAnimationSettings = (customAnimationSettings, store) => {
   const normalized = normalizeFileCustomAnimationSettings(customAnimationSettings);
   store.setFileCustomAnimation({

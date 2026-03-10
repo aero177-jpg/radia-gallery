@@ -305,6 +305,7 @@ export const useStore = create(
   vrSupported: false,
   vrSessionActive: false,
   vrModelScale: 1,
+  vrPivotStatusMessage: '',
 
   // Animation settings
   animationEnabled: true,
@@ -464,6 +465,11 @@ export const useStore = create(
 
   /** Tracks model scale while in VR */
   setVrModelScale: (vrModelScale) => set({ vrModelScale }),
+
+  /** Updates VR pivot status text shown in the desktop overlay */
+  setVrPivotStatusMessage: (vrPivotStatusMessage) => set({
+    vrPivotStatusMessage: typeof vrPivotStatusMessage === 'string' ? vrPivotStatusMessage : '',
+  }),
 
   /** Deprecated: toggles legacy fill-to-screen projection vs fit-to-bounds */
   toggleFillMode: () => set((state) => ({ fillMode: !state.fillMode })),

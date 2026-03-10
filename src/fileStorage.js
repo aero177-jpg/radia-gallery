@@ -30,6 +30,7 @@ const PREVIEW_VERSION = 1;
  * @property {string} [annotation] - Per-file annotation text
  * @property {number} [focusDistance] - Optional user-set focus distance override
  * @property {CustomCameraMetadata} [customMetadata] - Optional user-set camera metadata override
+ * @property {number[]} [vrPivotLocalPoint] - Optional VR pivot in model-local coordinates
  * @property {boolean} [isCached] - Whether this file is cached in IndexedDB
  */
 
@@ -262,6 +263,17 @@ export const saveVrNearClip = async (fileName, vrNearClip) => {
  */
 export const saveVrFarClip = async (fileName, vrFarClip) => {
   return await saveFileSettings(fileName, { vrFarClip });
+};
+
+/**
+ * Saves a base-file VR pivot override in model-local coordinates.
+ * This is intentionally stored on the base asset, not per view instance.
+ * @param {string} fileName - Base file name
+ * @param {number[]|undefined} vrPivotLocalPoint - [x, y, z] or undefined to clear
+ * @returns {Promise<boolean>} Success status
+ */
+export const saveVrPivotLocalPoint = async (fileName, vrPivotLocalPoint) => {
+  return await saveFileSettings(fileName, { vrPivotLocalPoint });
 };
 
 /**

@@ -17,6 +17,7 @@ import {
 import { useStore } from '../store';
 import { KeyboardIcon } from '../icons/customIcons';
 import {
+  hasSavedVrPivotOverrideForAsset,
   hasSavedVrFarClipOverrideForAsset,
   hasSavedVrNearClipOverrideForAsset,
   hasSavedVrViewForAsset,
@@ -110,6 +111,7 @@ function VrOverlay() {
   const setAssetSidebarOpen = useStore((state) => state.setAssetSidebarOpen);
   const setPanelOpen = useStore((state) => state.setPanelOpen);
   const openControlsModalWithSections = useStore((state) => state.openControlsModalWithSections);
+  const vrPivotStatusMessage = useStore((state) => state.vrPivotStatusMessage);
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
   const [vrNearClip, setVrNearClip] = useState(() => getCurrentVrNearClip());
   const [vrFarClip, setVrFarClip] = useState(() => getCurrentVrFarClip());
@@ -127,6 +129,7 @@ function VrOverlay() {
   const displayName =
     currentAsset?.displayName || currentAsset?.name || 'Unknown asset';
   const hasSavedVrView = hasSavedVrViewForAsset(currentAsset);
+  const hasSavedVrPivot = hasSavedVrPivotOverrideForAsset(currentAsset);
   const showCustomVrViewControls = customMetadataAvailable;
 
   // Reset save status when asset changes
@@ -528,6 +531,15 @@ function VrOverlay() {
             <KeyboardIcon size={20} />
             <span>VR Controls</span>
           </button>
+        </div>
+
+        <div class="vr-overlay__hint">
+          <p>
+            Pivot: {hasSavedVrPivot ? 'custom point' : 'default behavior'}.
+          </p>
+          <p>
+            {vrPivotStatusMessage || 'To save a pivot, grab the model with the right hand and press the left trigger.'}
+          </p>
         </div>
 
         {showCustomVrViewControls && (
