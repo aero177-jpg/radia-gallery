@@ -3,7 +3,7 @@
  * Multi-page flow: Landing → Export or Import
  */
 
-import { useCallback, useMemo, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import { useStore } from '../store';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -23,12 +23,18 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { validateImportUrl, buildShareLink } from '../utils/importFromUrl.js';
 import { getSource } from '../storage/index.js';
-import { buildTransferBundle, buildTransferJson } from '../utils/debugTransfer.js';
+import { buildTransferBundle, buildTransferJson, getLocalDataAvailability } from '../utils/debugTransfer.js';
 import { loadR2Settings } from '../storage/r2Settings.js';
 import { loadCloudGpuSettings } from '../storage/cloudGpuSettings.js';
 import Modal from './Modal';
 import SelectableOptionItem from './SelectableOptionItem';
 import ImportZipForm from './ImportZipForm.jsx';
+
+const keepVisibleSelections = (selection, availability = {}) => {
+  return Object.fromEntries(
+    Object.entries(selection).map(([key, value]) => [key, availability[key]?.available ? value : false]),
+  );
+};
 
 /**
  * Tier-style card for landing page options (Import / Export)
@@ -114,6 +120,8 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
   const [transferBusy, setTransferBusy] = useState(false);
   const [transferError, setTransferError] = useState(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [availableExportOptions, setAvailableExportOptions] = useState(null);
+  const [availabilityBusy, setAvailabilityBusy] = useState(false);
 
   // Share via URL state
   const [shareUrl, setShareUrl] = useState('');
@@ -122,9 +130,53 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
   const [shareCopied, setShareCopied] = useState(false);
   const [jsonCopied, setJsonCopied] = useState(false);
 
-  const isJsonExport = !transferOptions.includeFilePreviews;
+  const availabilityScope = useMemo(() => {
+    if (!isCurrentCollectionMode) return null;
+    return {
+      mode: 'current-collection',
+      ...scopeContext,
+    };
+  }, [isCurrentCollectionMode, scopeContext]);
 
-  const hasTransferSelection = Object.values(transferOptions).some(Boolean);
+  useEffect(() => {
+    let cancelled = false;
+    setAvailabilityBusy(true);
+
+    getLocalDataAvailability({ exportScope: availabilityScope })
+      .then((availability) => {
+        if (cancelled) return;
+        const nextAvailable = isCurrentCollectionMode
+          ? (availability?.exportCurrentCollection || {})
+          : (availability?.exportAllData || {});
+        setAvailableExportOptions(nextAvailable);
+        setTransferOptions((prev) => keepVisibleSelections(prev, nextAvailable));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[TransferDataModal] Failed to inspect export availability', err);
+        const optionKeys = isCurrentCollectionMode
+          ? ['includeCollectionData', 'includeConnectionData', 'includeFilePreviews', 'includeFileSettings']
+          : [
+              'includeUrlCollections',
+              'includeCloudGpuSettings',
+              'includeSupabaseCollections',
+              'includeSupabaseSettings',
+              'includeR2Collections',
+              'includeR2Settings',
+              'includeFilePreviews',
+              'includeFileSettings',
+            ];
+        const fallback = Object.fromEntries(optionKeys.map((key) => [key, { available: true, count: 0 }]));
+        setAvailableExportOptions(fallback);
+      })
+      .finally(() => {
+        if (!cancelled) setAvailabilityBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [availabilityScope, isCurrentCollectionMode]);
 
   const credentialShareNote = useMemo(() => {
     const getExposureType = (settings, rawKeyField, encryptedKeyField) => {
@@ -201,6 +253,100 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, []);
+
+  const options = isCurrentCollectionMode
+    ? [
+        {
+          key: 'includeCollectionData',
+          title: 'Collection data',
+          subtitle: 'Current collection/source entry and metadata',
+          icon: faFolder,
+        },
+        ...(hasConnectionOption
+          ? [
+              {
+                key: 'includeConnectionData',
+                title: activeSourceType === 'r2-bucket' ? 'R2 connection data' : 'Supabase connection data',
+                subtitle:
+                  activeSourceType === 'r2-bucket'
+                    ? 'Saved R2 credentials and endpoint settings'
+                    : 'Saved Supabase URL/key and bucket settings',
+                icon: faCog,
+              },
+            ]
+          : []),
+        {
+          key: 'includeFilePreviews',
+          title: 'File previews',
+          subtitle: 'Preview thumbnails for assets in this collection',
+          icon: faImage,
+        },
+        {
+          key: 'includeFileSettings',
+          title: 'File settings',
+          subtitle: 'Per-file settings only for assets in this collection',
+          icon: faFolder,
+        },
+      ]
+    : [
+        {
+          key: 'includeUrlCollections',
+          title: 'URL collections',
+          subtitle: 'Saved URL sources and their metadata',
+          icon: faLink,
+        },
+        {
+          key: 'includeCloudGpuSettings',
+          title: 'Cloud GPU settings',
+          subtitle: 'API endpoint and key configuration',
+          icon: faCloud,
+        },
+        {
+          key: 'includeSupabaseCollections',
+          title: 'Supabase collections',
+          subtitle: 'Saved Supabase bucket connections',
+          icon: faServer,
+        },
+        {
+          key: 'includeSupabaseSettings',
+          title: 'Supabase settings',
+          subtitle: 'Per-file camera and display settings',
+          icon: faCog,
+        },
+        {
+          key: 'includeR2Collections',
+          title: 'R2 collections',
+          subtitle: 'Saved Cloudflare R2 bucket connections',
+          icon: faServer,
+        },
+        {
+          key: 'includeR2Settings',
+          title: 'R2 settings',
+          subtitle: 'Saved R2 credentials and public URL',
+          icon: faCog,
+        },
+        {
+          key: 'includeFilePreviews',
+          title: 'File previews',
+          subtitle: 'Thumbnail images for local files',
+          icon: faImage,
+        },
+        {
+          key: 'includeFileSettings',
+          title: 'File settings',
+          subtitle: 'Per-file camera and display settings',
+          icon: faFolder,
+        },
+      ];
+
+  const visibleOptions = useMemo(() => {
+    if (!availableExportOptions) return [];
+    return options.filter((option) => availableExportOptions[option.key]?.available);
+  }, [availableExportOptions, options]);
+
+  const hasAvailableOptions = visibleOptions.length > 0;
+  const hasTransferSelection = visibleOptions.some((option) => Boolean(transferOptions[option.key]));
+  const isJsonExport = !transferOptions.includeFilePreviews;
 
   const buildExportPayload = useCallback(() => {
     return isCurrentCollectionMode
@@ -297,91 +443,6 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
     transferBusy,
   ]);
 
-  const options = isCurrentCollectionMode
-    ? [
-        {
-          key: 'includeCollectionData',
-          title: 'Collection data',
-          subtitle: 'Current collection/source entry and metadata',
-          icon: faFolder,
-        },
-        ...(hasConnectionOption
-          ? [
-              {
-                key: 'includeConnectionData',
-                title: activeSourceType === 'r2-bucket' ? 'R2 connection data' : 'Supabase connection data',
-                subtitle:
-                  activeSourceType === 'r2-bucket'
-                    ? 'Saved R2 credentials and endpoint settings'
-                    : 'Saved Supabase URL/key and bucket settings',
-                icon: faCog,
-              },
-            ]
-          : []),
-        {
-          key: 'includeFilePreviews',
-          title: 'File previews',
-          subtitle: 'Preview thumbnails for assets in this collection',
-          icon: faImage,
-        },
-        {
-          key: 'includeFileSettings',
-          title: 'File settings',
-          subtitle: 'Per-file settings only for assets in this collection',
-          icon: faFolder,
-        },
-      ]
-    : [
-        {
-          key: 'includeUrlCollections',
-          title: 'URL collections',
-          subtitle: 'Saved URL sources and their metadata',
-          icon: faLink,
-        },
-        {
-          key: 'includeCloudGpuSettings',
-          title: 'Cloud GPU settings',
-          subtitle: 'API endpoint and key configuration',
-          icon: faCloud,
-        },
-        {
-          key: 'includeSupabaseCollections',
-          title: 'Supabase collections',
-          subtitle: 'Saved Supabase bucket connections',
-          icon: faServer,
-        },
-        {
-          key: 'includeSupabaseSettings',
-          title: 'Supabase settings',
-          subtitle: 'Per-file camera and display settings',
-          icon: faCog,
-        },
-        {
-          key: 'includeR2Collections',
-          title: 'R2 collections',
-          subtitle: 'Saved Cloudflare R2 bucket connections',
-          icon: faServer,
-        },
-        {
-          key: 'includeR2Settings',
-          title: 'R2 settings',
-          subtitle: 'Saved R2 credentials and public URL',
-          icon: faCog,
-        },
-        {
-          key: 'includeFilePreviews',
-          title: 'File previews',
-          subtitle: 'Thumbnail images for local files',
-          icon: faImage,
-        },
-        {
-          key: 'includeFileSettings',
-          title: 'File settings',
-          subtitle: 'Per-file camera and display settings',
-          icon: faFolder,
-        },
-      ];
-
   const exportTitle = isCurrentCollectionMode ? 'Export current collection' : 'Export all data';
   const exportSubtitle = isCurrentCollectionMode
     ? 'Select data to include. File settings and previews are limited to this collection manifest.'
@@ -412,7 +473,20 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
           marginTop: '20px',
         }}
       >
-        {options.map((opt) => (
+        {availabilityBusy && !availableExportOptions && (
+          <p class="dialog-subtitle" style={{ margin: 0 }}>
+            Checking saved data...
+          </p>
+        )}
+
+        {!availabilityBusy && availableExportOptions && !hasAvailableOptions && (
+          <div class="form-info" style={{ marginTop: 0 }}>
+            <FontAwesomeIcon icon={faCheck} />
+            {' '}No exportable data was found for this scope.
+          </div>
+        )}
+
+        {visibleOptions.map((opt) => (
           <SelectableOptionItem
             key={opt.key}
             title={opt.title}
@@ -438,7 +512,7 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
         </div>
       )}
 
-      {credentialShareNote && (
+      {credentialShareNote && hasAvailableOptions && (
         <div class={hasRawCredentialShare ? 'form-error' : 'form-notice'} style={{ marginTop: '16px' }}>
           <FontAwesomeIcon icon={faExclamationTriangle} style={{ marginTop: '2px', flexShrink: 0 }} />
           {' '}{credentialShareNote}
@@ -463,7 +537,7 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
         <button
           class="primary-button"
           onClick={handleExportTransfer}
-          disabled={!hasTransferSelection || transferBusy}
+          disabled={!hasTransferSelection || transferBusy || availabilityBusy}
           style={{ height: '36px', padding: '0 16px', minWidth: '120px', fontSize: '14px' }}
         >
           {transferBusy ? (
@@ -483,11 +557,11 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
             </>
           )}
         </button>
-        {isJsonExport && (
+        {isJsonExport && hasAvailableOptions && (
           <button
             class="secondary-button"
             onClick={handleCopyJson}
-            disabled={!hasTransferSelection || transferBusy}
+            disabled={!hasTransferSelection || transferBusy || availabilityBusy}
             title="Copy JSON to clipboard"
             style={{ height: '36px', padding: '0 12px', marginTop: 0, width: '36px', minWidth: '36px' }}
           >
@@ -497,7 +571,8 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
       </div>
 
       {/* Share via URL collapsible section */}
-      <details class="controls-section" style={{ marginTop: '20px' }}>
+      {hasAvailableOptions && (
+        <details class="controls-section" style={{ marginTop: '20px' }}>
         <summary class="controls-section__summary">
           <FontAwesomeIcon icon={faChevronRight} className="controls-section__chevron" />
           <span class="controls-section__title">Share via URL</span>
@@ -593,7 +668,8 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
             )}
           </div>
         </div>
-      </details>
+        </details>
+      )}
 
     </div>
   );

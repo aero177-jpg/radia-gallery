@@ -12,6 +12,7 @@ import { currentMesh, raycaster, SplatMesh, scene } from '../viewer';
 import { updateDollyZoomBaselineFromCamera } from '../viewer';
 import { startAnchorTransition } from '../cameraAnimations';
 import { enableImmersiveMode, disableImmersiveMode, recenterInImmersiveMode, isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
+import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport.js';
 import { saveFocusDistance, clearFocusDistance } from '../fileStorage';
 import { updateFocusDistanceInCache, clearFocusDistanceInCache } from '../splatManager';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -231,6 +232,7 @@ function CameraControls() {
   const setQualityPreset = useStore((state) => state.setQualityPreset);
   const controlsModalOpen = useStore((state) => state.controlsModalOpen);
   const openControlsModalWithSections = useStore((state) => state.openControlsModalWithSections);
+  const canUseImmersiveControls = supportsImmersiveControls();
 
   // Ref for camera range slider to avoid DOM queries
   const rangeSliderRef = useRef(null);
@@ -597,7 +599,7 @@ function CameraControls() {
 
   // Pause immersive mode during pinch-zoom gestures on viewer
   useEffect(() => {
-    if (!isMobile) return;
+    if (!canUseImmersiveControls) return;
     
     const viewerEl = document.getElementById('viewer');
     if (!viewerEl) return;
@@ -638,7 +640,7 @@ function CameraControls() {
       viewerEl.removeEventListener('touchcancel', handleTouchEnd);
       if (pinchResumeTimeout) clearTimeout(pinchResumeTimeout);
     };
-  }, [isMobile]);
+  }, [canUseImmersiveControls]);
 
   const activeAsset = assets[currentAssetIndex] || null;
   const isFirstUnsavedCustomView = Boolean(
@@ -1127,16 +1129,17 @@ function CameraControls() {
         onClick={toggleCameraSettingsExpanded}
       >
         <span class="settings-eyebrow">Camera Settings</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '-8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             class="add-source-btn"
             type="button"
-            title="Controls"
+            title="Controls guide"
             onClick={(e) => {
               e.stopPropagation();
               const controlsKey = isMobile ? 'controls.mobile' : 'controls.desktop';
               openControlsModalWithSections(['settings.main-settings', controlsKey]);
             }}
+            aria-label="Open controls guide"
             style={{ width: '28px', height: '22px', fontSize: '11px' }}
           >
             <KeyboardIcon size={14} />
@@ -1150,8 +1153,8 @@ function CameraControls() {
         class="group-content" 
         style={{ display: cameraSettingsExpanded ? 'flex' : 'none' }}
       >
-        {/* Immersive mode toggle - mobile only */}
-        {isMobile && (
+        {/* Immersive mode toggle - supported touch orientation devices only */}
+        {canUseImmersiveControls && (
           <>
             {/* Immersive sensitivity slider - shown when immersive mode is active */}
             {immersiveMode && (
@@ -1504,7 +1507,7 @@ function CameraControls() {
 
         {/* Action buttons */}
         <div class="settings-footer">
-          <span class="recenter-hint">hold to refresh</span>
+          {/* <span class="recenter-hint">hold to refresh</span>
           <button
             class="secondary recenter-btn"
             onPointerDown={handleRecenterPointerDown}
@@ -1528,7 +1531,7 @@ function CameraControls() {
                 }}
               />
             )}
-          </button>
+          </button> */}
           
           <div class="focus-control">
             <button 

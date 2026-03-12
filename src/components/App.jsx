@@ -27,7 +27,7 @@ import PwaInstallPrompt from './PwaInstallPrompt';
 import SlideshowOptionsModal from './SlideshowOptionsModal';
 import AddDemoCollectionsModal from './AddDemoCollectionsModal';
 import { useCollectionRouting } from './useCollectionRouting.js';
-import { getImportUrlFromLocation, clearImportUrlFromLocation } from '../utils/importFromUrl.js';
+import { getImportUrlFromLocation, clearImportUrlFromLocation, importBundleFromUrl } from '../utils/importFromUrl.js';
 import ImportFromUrlModal from './ImportFromUrlModal';
 import { resetLandingView } from '../utils/resetLandingView.js';
 import BottomControls from './BottomControls';
@@ -123,6 +123,7 @@ function App() {
 
   // Remote import via ?import= query param
   const [pendingImportUrl, setPendingImportUrl] = useState(null);
+  const [importFromUrlError, setImportFromUrlError] = useState(null);
 
   // Outside click handler to close side panel
   // Disabled when focus-setting mode or custom view editor is active to prevent accidental closure
@@ -389,8 +390,52 @@ function App() {
     const url = getImportUrlFromLocation();
     if (url) {
       setPendingImportUrl(url);
+      setImportFromUrlError(null);
     }
   }, [viewerReady]);
+
+  useEffect(() => {
+    if (!viewerReady || !pendingImportUrl) return;
+
+    let cancelled = false;
+
+    const runImport = async () => {
+      try {
+        const result = await importBundleFromUrl(pendingImportUrl);
+        if (cancelled) return;
+
+        const summary = result.summary;
+        addLog?.(`[Import] Remote bundle imported: ${summary.sourcesImported} sources, ${summary.fileSettingsImported} file settings, ${summary.previewsImported} previews`);
+
+        clearImportUrlFromLocation();
+        setPendingImportUrl(null);
+        setImportFromUrlError(null);
+
+        if (summary.importedSources?.length === 1) {
+          try {
+            await loadFromStorageSource(summary.importedSources[0]);
+          } catch (err) {
+            addLog?.(`[Import] Auto-load after import failed: ${err?.message || err}`);
+          }
+        }
+      } catch (err) {
+        if (cancelled) return;
+
+        const message = err?.message || 'Import failed';
+        setImportFromUrlError({
+          url: pendingImportUrl,
+          error: message,
+        });
+        addLog?.(`[Import] Remote import failed: ${message}`);
+      }
+    };
+
+    void runImport();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [addLog, pendingImportUrl, viewerReady]);
 
   // Keep landingVisible in sync: show when no assets, hide when assets present
   useEffect(() => {
@@ -490,13 +535,14 @@ function App() {
       <PwaReloadPrompt />
       <PwaInstallPrompt />
       <ImportFromUrlModal
-        isOpen={Boolean(pendingImportUrl)}
-        importUrl={pendingImportUrl}
+        isOpen={Boolean(importFromUrlError)}
+        importUrl={importFromUrlError?.url || ''}
+        error={importFromUrlError?.error || ''}
         onClose={() => {
           setPendingImportUrl(null);
+          setImportFromUrlError(null);
           clearImportUrlFromLocation();
         }}
-        addLog={addLog}
       />
       {dropModal}
       {uploadModal}

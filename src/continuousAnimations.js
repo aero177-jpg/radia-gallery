@@ -319,6 +319,8 @@ const processPendingHandoff = () => {
       glideDuration: handoff.glideDuration,
       glideFrom,
       skipFade: true,
+      shouldContinueMotion: handoff.shouldContinueMotion,
+      onMotionSkipped: handoff.onMotionSkipped,
       onMotionStart: () => {
         handoff.onStarted?.();
       },
@@ -343,6 +345,12 @@ export const continuousZoomSlideIn = (duration, amount, options = {}) => {
 
     const skipFade = options.skipFade ?? false;
     const glideFrom = options.glideFrom ?? null; // { position, target }
+    const shouldContinueMotion = typeof options.shouldContinueMotion === 'function'
+      ? options.shouldContinueMotion
+      : null;
+    const onMotionSkipped = typeof options.onMotionSkipped === 'function'
+      ? options.onMotionSkipped
+      : null;
 
     if (!skipFade) {
       const { viewerEl, fadeDurationSec, canAnimate } = beginContinuousSlideIn(duration);
@@ -370,7 +378,21 @@ export const continuousZoomSlideIn = (duration, amount, options = {}) => {
       ? options.onMotionStart
       : null;
 
+    const settleAtHome = () => {
+      camera.position.copy(currentPosition);
+      controls.target.copy(currentTarget);
+      controls.update();
+      requestRender();
+      onMotionSkipped?.();
+      if (skipFade) resolve();
+    };
+
     const startMainAnimation = () => {
+      if (shouldContinueMotion && !shouldContinueMotion()) {
+        continuousZoomTween = null;
+        settleAtHome();
+        return;
+      }
       onMotionStart?.();
       continuousZoomTween = gsap.to(camera.position, {
         x: endPosition.x,
@@ -386,6 +408,11 @@ export const continuousZoomSlideIn = (duration, amount, options = {}) => {
         },
       });
     };
+
+    if (shouldContinueMotion && !shouldContinueMotion()) {
+      settleAtHome();
+      return;
+    }
 
     if (glideDuration > 0) {
       const glideStartPos = glideFrom?.position ?? currentPosition;
@@ -437,6 +464,12 @@ export const continuousDollyZoomSlideIn = (duration, amount, options = {}) => {
 
     const skipFade = options.skipFade ?? false;
     const glideFrom = options.glideFrom ?? null;
+    const shouldContinueMotion = typeof options.shouldContinueMotion === 'function'
+      ? options.shouldContinueMotion
+      : null;
+    const onMotionSkipped = typeof options.onMotionSkipped === 'function'
+      ? options.onMotionSkipped
+      : null;
 
     if (!skipFade) {
       const { viewerEl, fadeDurationSec, canAnimate } = beginContinuousSlideIn(duration);
@@ -464,7 +497,23 @@ export const continuousDollyZoomSlideIn = (duration, amount, options = {}) => {
       ? options.onMotionStart
       : null;
 
+    const settleAtHome = () => {
+      camera.position.copy(currentPosition);
+      controls.target.copy(currentTarget);
+      camera.fov = baseFov;
+      camera.updateProjectionMatrix();
+      controls.update();
+      requestRender();
+      onMotionSkipped?.();
+      if (skipFade) resolve();
+    };
+
     const startMainAnimation = () => {
+      if (shouldContinueMotion && !shouldContinueMotion()) {
+        continuousDollyZoomTween = null;
+        settleAtHome();
+        return;
+      }
       onMotionStart?.();
       const proxy = { t: 0 };
       continuousDollyZoomTween = gsap.to(proxy, {
@@ -491,6 +540,11 @@ export const continuousDollyZoomSlideIn = (duration, amount, options = {}) => {
         },
       });
     };
+
+    if (shouldContinueMotion && !shouldContinueMotion()) {
+      settleAtHome();
+      return;
+    }
 
     if (glideDuration > 0 && glideFrom) {
       const glideStartPos = glideFrom.position;
@@ -535,6 +589,12 @@ export const continuousOrbitSlideIn = (duration, amount, options = {}) => {
 
     const skipFade = options.skipFade ?? false;
     const glideFrom = options.glideFrom ?? null;
+    const shouldContinueMotion = typeof options.shouldContinueMotion === 'function'
+      ? options.shouldContinueMotion
+      : null;
+    const onMotionSkipped = typeof options.onMotionSkipped === 'function'
+      ? options.onMotionSkipped
+      : null;
 
     if (!skipFade) {
       const { viewerEl, fadeDurationSec, canAnimate } = beginContinuousSlideIn(duration);
@@ -566,6 +626,24 @@ export const continuousOrbitSlideIn = (duration, amount, options = {}) => {
     const startPosition = startTarget.clone().add(startOrbitOffset);
     const endPosition = endTarget.clone().add(endOrbitOffset);
 
+    const settleAtHome = () => {
+      if (continuousOrbitState) {
+        restoreOrbitLimitOverride(continuousOrbitState);
+        continuousOrbitState = null;
+      }
+      camera.position.copy(currentPosition);
+      controls.target.copy(currentTarget);
+      controls.update();
+      requestRender();
+      onMotionSkipped?.();
+      if (skipFade) resolve();
+    };
+
+    if (shouldContinueMotion && !shouldContinueMotion()) {
+      settleAtHome();
+      return;
+    }
+
     continuousOrbitState = {};
     applyOrbitLimitOverride(continuousOrbitState);
 
@@ -575,6 +653,11 @@ export const continuousOrbitSlideIn = (duration, amount, options = {}) => {
       : null;
 
     const startMainAnimation = () => {
+      if (shouldContinueMotion && !shouldContinueMotion()) {
+        continuousOrbitTween = null;
+        settleAtHome();
+        return;
+      }
       onMotionStart?.();
       const proxy = { t: 0 };
       continuousOrbitTween = gsap.to(proxy, {
@@ -647,6 +730,12 @@ export const continuousVerticalOrbitSlideIn = (duration, amount, options = {}) =
 
     const skipFade = options.skipFade ?? false;
     const glideFrom = options.glideFrom ?? null;
+    const shouldContinueMotion = typeof options.shouldContinueMotion === 'function'
+      ? options.shouldContinueMotion
+      : null;
+    const onMotionSkipped = typeof options.onMotionSkipped === 'function'
+      ? options.onMotionSkipped
+      : null;
 
     if (!skipFade) {
       const { viewerEl, fadeDurationSec, canAnimate } = beginContinuousSlideIn(duration);
@@ -683,6 +772,24 @@ export const continuousVerticalOrbitSlideIn = (duration, amount, options = {}) =
     const startOrbitOffset = orbitOffset.clone().applyAxisAngle(right, -upAngle);
     const startPosition = startTarget.clone().add(startOrbitOffset);
 
+    const settleAtHome = () => {
+      if (continuousVerticalOrbitState) {
+        restoreOrbitLimitOverride(continuousVerticalOrbitState);
+        continuousVerticalOrbitState = null;
+      }
+      camera.position.copy(currentPosition);
+      controls.target.copy(currentTarget);
+      controls.update();
+      requestRender();
+      onMotionSkipped?.();
+      if (skipFade) resolve();
+    };
+
+    if (shouldContinueMotion && !shouldContinueMotion()) {
+      settleAtHome();
+      return;
+    }
+
     continuousVerticalOrbitState = {};
     applyOrbitLimitOverride(continuousVerticalOrbitState);
 
@@ -692,6 +799,11 @@ export const continuousVerticalOrbitSlideIn = (duration, amount, options = {}) =
       : null;
 
     const startMainAnimation = () => {
+      if (shouldContinueMotion && !shouldContinueMotion()) {
+        continuousVerticalOrbitTween = null;
+        settleAtHome();
+        return;
+      }
       onMotionStart?.();
       const proxy = { t: 0 };
       continuousVerticalOrbitTween = gsap.to(proxy, {

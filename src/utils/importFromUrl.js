@@ -15,7 +15,7 @@ export const resolveImportPayloadUrl = (url) => {
     const parsed = new URL(trimmed);
     const importValue = parsed.searchParams.get('import');
     if (importValue) {
-      return decodeURIComponent(importValue);
+      return importValue;
     }
     return trimmed;
   } catch {
@@ -215,7 +215,7 @@ export const getImportUrlFromLocation = () => {
   try {
     const params = new URLSearchParams(window.location.search);
     const value = params.get('import');
-    return value ? decodeURIComponent(value) : null;
+    return value || null;
   } catch {
     return null;
   }

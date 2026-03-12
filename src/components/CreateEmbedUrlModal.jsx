@@ -16,6 +16,7 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
   const [generatedLink, setGeneratedLink] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [iframeCopied, setIframeCopied] = useState(false);
   const [includePreviews, setIncludePreviews] = useState(true);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState('');
@@ -145,11 +146,22 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
     };
   }, [appBgColor, cameraRange, exportScope, includePreviews]);
 
+  const iframeSnippet = useMemo(() => {
+    if (!generatedLink) return '';
+
+    const escapedSrc = generatedLink
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;');
+
+    return `<iframe src="${escapedSrc}" title="Radia Gallery Embed" loading="lazy" allow="fullscreen; accelerometer; gyroscope; magnetometer; xr-spatial-tracking" allowfullscreen style="width:100%;height:100%;border:0;"></iframe>`;
+  }, [generatedLink]);
+
   const handleClose = useCallback(() => {
     setPayloadUrl('');
     setGeneratedLink('');
     setError('');
     setCopied(false);
+    setIframeCopied(false);
     setIncludePreviews(true);
     setExportBusy(false);
     setExportError('');
@@ -164,6 +176,7 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
       setGeneratedLink('');
       setError('');
       setCopied(false);
+      setIframeCopied(false);
       setIncludePreviews(true);
       setExportBusy(false);
       setExportError('');
@@ -240,6 +253,7 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
     setGeneratedLink(link);
     setError('');
     setCopied(false);
+    setIframeCopied(false);
     try {
       navigator.clipboard.writeText(link);
       setCopied(true);
@@ -369,6 +383,7 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
               setError('');
               setGeneratedLink('');
               setCopied(false);
+              setIframeCopied(false);
             }}
           />
         </div>
@@ -406,6 +421,7 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
                 try {
                   navigator.clipboard.writeText(generatedLink);
                   setCopied(true);
+                  setIframeCopied(false);
                   setTimeout(() => setCopied(false), 3000);
                 } catch {
                   // Ignore clipboard failures
@@ -420,6 +436,46 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
             <div class="form-success" style={{ marginTop: '8px' }}>
               <FontAwesomeIcon icon={faCheck} />
               {' '}Embed URL copied to clipboard!
+            </div>
+          )}
+
+          <p class="dialog-subtitle" style={{ marginTop: '14px' }}>
+            Example iframe embed. The <code>allow</code> and <code>allowfullscreen</code> attributes help preserve fullscreen and motion/device sensor access when the browser permits those APIs inside iframes.
+          </p>
+
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginTop: '10px' }}>
+            <div class="form-field" style={{ flex: 1, marginBottom: 0 }}>
+              <textarea
+                value={iframeSnippet}
+                readOnly
+                rows={4}
+                onClick={(e) => e.target.select()}
+                style={{ resize: 'vertical', minHeight: '104px' }}
+              />
+            </div>
+            <button
+              class="secondary-button"
+              onClick={() => {
+                try {
+                  navigator.clipboard.writeText(iframeSnippet);
+                  setIframeCopied(true);
+                  setCopied(false);
+                  setTimeout(() => setIframeCopied(false), 3000);
+                } catch {
+                  // Ignore clipboard failures
+                }
+              }}
+              style={{ height: '36px', width: '50px', marginTop: 0, whiteSpace: 'nowrap' }}
+              title="Copy iframe example"
+            >
+              <FontAwesomeIcon icon={iframeCopied ? faCheck : faCopy} />
+            </button>
+          </div>
+
+          {iframeCopied && (
+            <div class="form-success" style={{ marginTop: '8px' }}>
+              <FontAwesomeIcon icon={faCheck} />
+              {' '}Iframe example copied to clipboard!
             </div>
           )}
         </div>

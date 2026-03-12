@@ -17,6 +17,7 @@ import { initVrSupport } from '../vrMode';
 import useHasMesh from '../utils/useHasMesh';
 import useFullscreenControls from '../utils/useFullscreenControls';
 import useControlsReveal from '../utils/useControlsReveal';
+import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport';
 import AssetNavigation from './AssetNavigation';
 
 const updateControlSpeedsForFov = (fov) => {
@@ -46,6 +47,7 @@ function BottomControls({ onOpenSlideshowOptions }) {
   const disableTransparentUi = useStore((state) => state.disableTransparentUi);
   const annotation = useStore((state) => state.annotation);
   const setAnnotation = useStore((state) => state.setAnnotation);
+  const canUseImmersiveControls = supportsImmersiveControls();
 
   const hasMesh = useHasMesh();
   const resetHoldTimeout = useRef(null);
@@ -290,7 +292,7 @@ function BottomControls({ onOpenSlideshowOptions }) {
               </button>
             )}
 
-            {isMobile && (
+            {canUseImmersiveControls && (
               <button
                 class={`bottom-page-btn immersive-toggle ${immersiveMode ? 'is-active' : 'is-inactive'}`}
                 onClick={handleImmersiveToggle}

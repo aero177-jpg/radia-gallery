@@ -49,6 +49,10 @@ const cleanupBgFade = () => {
   }
 };
 
+export const cancelBackgroundTransition = () => {
+  cleanupBgFade();
+};
+
 /** Apply (or clear) the viewer background image. */
 export const applyBackground = (url) => {
   // Clean up any in-progress fade transition so it doesn't conflict

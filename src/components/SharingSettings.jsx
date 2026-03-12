@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown, faQuestion } from '@fortawesome/free-solid-svg-icons';
 import { useStore } from '../store.js';
 import { formatBytes } from '../previewManager.js';
 import { getSource, isSourceAsset, loadAssetFile } from '../storage/index.js';
@@ -13,7 +13,9 @@ function SharingSettings() {
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const activeSourceId = useStore((state) => state.activeSourceId);
+  const fileInfo = useStore((state) => state.fileInfo);
   const addLog = useStore((state) => state.addLog);
+  const openControlsModalWithSections = useStore((state) => state.openControlsModalWithSections);
   const setUploadState = useStore((state) => state.setUploadState);
 
   const [expanded, setExpanded] = useState(false);
@@ -23,6 +25,9 @@ function SharingSettings() {
 
   const currentAsset = assets[currentAssetIndex] || null;
   const currentAssetSize = currentAsset?.file?.size ?? currentAsset?.size ?? null;
+  const currentAssetSizeLabel = fileInfo?.size && fileInfo.size !== '-'
+    ? fileInfo.size
+    : formatBytes(currentAssetSize);
 
   const collectionInfo = useMemo(() => {
     const source = activeSourceId ? getSource(activeSourceId) : null;
@@ -156,14 +161,29 @@ function SharingSettings() {
   return (
     <>
       <div class="settings-group">
-        <button
+        <div
           class="group-toggle"
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
         >
           <span class="settings-eyebrow">Sharing</span>
-          <FontAwesomeIcon icon={faChevronDown} className="chevron" />
-        </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              class="add-source-btn"
+              type="button"
+              title="Sharing guide"
+              aria-label="Open sharing guide"
+              onClick={(e) => {
+                e.stopPropagation();
+                openControlsModalWithSections(['sharing.transfer-bundles', 'sharing.embed-links']);
+              }}
+              style={{ width: '28px', height: '22px', fontSize: '11px' }}
+            >
+              <FontAwesomeIcon icon={faQuestion} />
+            </button>
+            <FontAwesomeIcon icon={faChevronDown} className="chevron" />
+          </div>
+        </div>
 
         <div class="group-content" style={{ display: expanded ? 'flex' : 'none' }}>
           <div class="control-row">
@@ -217,7 +237,7 @@ function SharingSettings() {
         onExportAsset={handleExportCurrentAsset}
         onExportCollection={handleExportCollection}
         assetTitle={currentAsset?.name || 'Current image'}
-        assetSubtitle={`Size: ${formatBytes(currentAssetSize)}`}
+        assetSubtitle={`Size: ${currentAssetSizeLabel}`}
         collectionTitle={collectionInfo.collectionName}
         collectionSubtitle={
           collectionInfo.allSizesKnown

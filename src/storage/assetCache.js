@@ -384,6 +384,39 @@ export const clearCollectionCache = async (sourceId) => {
   return { removed };
 };
 
+export const getAssetCacheStats = async () => {
+  try {
+    const db = await openDatabase();
+    const counts = await Promise.all([
+      new Promise((resolve, reject) => {
+        const tx = db.transaction([ASSET_STORE], 'readonly');
+        const store = tx.objectStore(ASSET_STORE);
+        const request = store.count();
+        request.onsuccess = () => resolve(request.result || 0);
+        request.onerror = () => reject(new Error('Failed to count asset cache blobs'));
+      }),
+      new Promise((resolve, reject) => {
+        const tx = db.transaction([MANIFEST_STORE], 'readonly');
+        const store = tx.objectStore(MANIFEST_STORE);
+        const request = store.count();
+        request.onsuccess = () => resolve(request.result || 0);
+        request.onerror = () => reject(new Error('Failed to count asset cache manifests'));
+      }),
+    ]);
+
+    return {
+      assetBlobCount: counts[0],
+      manifestCount: counts[1],
+    };
+  } catch (err) {
+    console.warn('[AssetCache] Failed to inspect cache stats', err);
+    return {
+      assetBlobCount: 0,
+      manifestCount: 0,
+    };
+  }
+};
+
 export const clearAllAssetCache = async () => {
   try {
     const db = await openDatabase();

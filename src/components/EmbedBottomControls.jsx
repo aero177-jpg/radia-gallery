@@ -9,6 +9,7 @@ import { resetViewWithImmersive } from '../cameraUtils.js';
 import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode.js';
 import useFullscreenControls from '../utils/useFullscreenControls.js';
 import useControlsReveal from '../utils/useControlsReveal.js';
+import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport.js';
 import AssetNavigation from './AssetNavigation.jsx';
 
 function EmbedBottomControls({ onOpenSlideshowOptions }) {
@@ -25,6 +26,7 @@ function EmbedBottomControls({ onOpenSlideshowOptions }) {
   const toggleExpandedViewer = useStore((state) => state.toggleExpandedViewer);
   const isMobile = useStore((state) => state.isMobile);
   const disableTransparentUi = useStore((state) => state.disableTransparentUi);
+  const canUseImmersiveControls = supportsImmersiveControls();
 
   const { controlsRevealed, revealBottomControls } = useControlsReveal({ slideshowPlaying });
 
@@ -75,6 +77,17 @@ function EmbedBottomControls({ onOpenSlideshowOptions }) {
       onPointerDown={() => slideshowPlaying && revealBottomControls(true, 1000)}
     >
       <div class="bottom-controls-left">
+        {isMobile && (
+          <button
+            class="bottom-page-btn"
+            onClick={handleToggleRegularFullscreen}
+            aria-label={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            title={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isRegularFullscreen ? <MinimizeIcon size={18} /> : <MaximizeIcon size={18} />}
+          </button>
+        )}
+
         {assets.length > 1 && (
           <button
             class={`bottom-page-btn ${assetSidebarOpen ? 'is-active' : ''}`}
@@ -113,16 +126,18 @@ function EmbedBottomControls({ onOpenSlideshowOptions }) {
           </button>
         )}
 
-        <button
-          class="bottom-page-btn"
-          onClick={handleToggleRegularFullscreen}
-          aria-label={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-          title={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-        >
-          {isRegularFullscreen ? <MinimizeIcon size={18} /> : <MaximizeIcon size={18} />}
-        </button>
+        {!isMobile && (
+          <button
+            class="bottom-page-btn"
+            onClick={handleToggleRegularFullscreen}
+            aria-label={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            title={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isRegularFullscreen ? <MinimizeIcon size={18} /> : <MaximizeIcon size={18} />}
+          </button>
+        )}
 
-        {isMobile && (
+        {canUseImmersiveControls && (
           <button
             class={`bottom-page-btn immersive-toggle ${immersiveMode ? 'is-active' : 'is-inactive'}`}
             onClick={() => void handleImmersiveToggle()}

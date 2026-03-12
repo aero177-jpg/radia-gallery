@@ -130,7 +130,9 @@ function ImportZipForm({
         return;
       }
       try {
-        const result = await importBundleFromUrl(trimmed);
+        const result = await importBundleFromUrl(trimmed, {
+          logger: (message) => addLog?.(message),
+        });
         const { summary } = result;
         const msg = `Import complete: ${summary.sourcesImported} sources, ${summary.fileSettingsImported} settings, ${summary.previewsImported} previews`;
         setInlineSuccess(msg);

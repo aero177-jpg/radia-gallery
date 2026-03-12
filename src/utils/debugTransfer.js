@@ -11,6 +11,8 @@ import {
   restoreSource,
   deleteSource,
   clearAllAssetCache,
+  getRemovedAssetNames,
+  addRemovedAssetNames,
 } from '../storage/index.js';
 import {
   loadSupabaseSettings,
@@ -29,6 +31,7 @@ import {
   saveCloudGpuSettings,
   clearCloudGpuSettings,
 } from '../storage/cloudGpuSettings.js';
+import { getAssetCacheStats } from '../storage/assetCache.js';
 import {
   listAllFileSettings,
   listPreviewRecords,
@@ -186,6 +189,70 @@ const buildNameMatcher = (names) => {
       return false;
     },
   };
+};
+
+const getStorageBaseName = (value) => {
+  if (!value) return '';
+  const text = String(value).trim();
+  if (!text) return '';
+  const sep = text.indexOf('::');
+  return sep > 0 ? text.slice(0, sep) : text;
+};
+
+const getPathFileName = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const normalized = text.replace(/\\/g, '/');
+  const parts = normalized.split('/');
+  return parts[parts.length - 1] || normalized;
+};
+
+const isRemovedAssetName = (removedNames, value) => {
+  if (!removedNames?.size) return false;
+  const baseName = getStorageBaseName(value);
+  if (!baseName) return false;
+  return removedNames.has(baseName);
+};
+
+const buildRemovedNameUnion = (removedEntries = []) => {
+  const names = new Set();
+  removedEntries.forEach((entry) => {
+    normalizeNameList(entry?.assetNames || []).forEach((name) => names.add(name));
+  });
+  return names;
+};
+
+const sanitizeSourceConfigForExport = (config, removedNames = new Set()) => {
+  if (!config || typeof config !== 'object') return config;
+  if (!removedNames.size) return config;
+
+  const nextConfig = {
+    ...config,
+    config: {
+      ...(config.config || {}),
+    },
+  };
+
+  if (Array.isArray(nextConfig.config.assetPaths)) {
+    nextConfig.config.assetPaths = nextConfig.config.assetPaths.filter(
+      (path) => !isRemovedAssetName(removedNames, getPathFileName(path)),
+    );
+  }
+
+  return nextConfig;
+};
+
+const loadRemovedAssetsForSources = async (sources = []) => {
+  const results = await Promise.all(
+    (sources || [])
+      .filter((config) => config?.id)
+      .map(async (config) => ({
+        sourceId: config.id,
+        assetNames: normalizeNameList(await getRemovedAssetNames(config.id)),
+      })),
+  );
+
+  return results.filter((entry) => entry.assetNames.length > 0);
 };
 
 const readLocalStorageJson = (key, fallback = null) => {
@@ -430,6 +497,7 @@ const buildZipFileMap = async ({
     cloudGpuSettings: null,
     fileSettings: [],
     previews: [],
+    removedAssets: [],
   };
 
   if (isCurrentCollectionScope && includeCollectionData) {
@@ -451,6 +519,16 @@ const buildZipFileMap = async ({
       notes.push('Local folder sources were skipped (handles cannot be exported).');
     }
   }
+
+  if (data.sources.length > 0) {
+    data.removedAssets = await loadRemovedAssetsForSources(data.sources);
+    if (data.removedAssets.length > 0) {
+      const removedMap = new Map(data.removedAssets.map((entry) => [entry.sourceId, new Set(entry.assetNames)]));
+      data.sources = data.sources.map((config) => sanitizeSourceConfigForExport(config, removedMap.get(config.id) || new Set()));
+    }
+  }
+
+  const removedNameUnion = buildRemovedNameUnion(data.removedAssets);
 
   if (isCurrentCollectionScope) {
     if (includeConnectionData) {
@@ -485,7 +563,9 @@ const buildZipFileMap = async ({
         ? fileSettings.filter((record) => scopeNameMatcher.has(record?.fileName))
         : [];
     } else {
-      data.fileSettings = fileSettings;
+      data.fileSettings = removedNameUnion.size
+        ? fileSettings.filter((record) => !isRemovedAssetName(removedNameUnion, record?.fileName))
+        : fileSettings;
     }
   }
 
@@ -496,7 +576,9 @@ const buildZipFileMap = async ({
       ? (scopeNameMatcher.hasNames
           ? previewRecords.filter((record) => scopeNameMatcher.has(record?.fileName))
           : [])
-      : previewRecords;
+      : (removedNameUnion.size
+        ? previewRecords.filter((record) => !isRemovedAssetName(removedNameUnion, record?.fileName))
+        : previewRecords);
 
     for (let index = 0; index < scopedPreviewRecords.length; index += 1) {
       const record = scopedPreviewRecords[index];
@@ -655,6 +737,46 @@ const countLocalStorageKeysByPrefix = (prefix) => {
   return count;
 };
 
+const hasLocalStorageKey = (key) => {
+  if (typeof window === 'undefined' || !window.localStorage) return false;
+  return window.localStorage.getItem(key) !== null;
+};
+
+const buildAvailabilityEntry = (count = 0) => ({
+  available: count > 0,
+  count,
+});
+
+const countSourcesByType = (sources = []) => {
+  const counts = {
+    publicUrl: 0,
+    supabase: 0,
+    r2: 0,
+    localFolder: 0,
+    appStorage: 0,
+  };
+
+  sources.forEach((config) => {
+    if (config?.type === 'public-url') counts.publicUrl += 1;
+    if (config?.type === 'supabase-storage') counts.supabase += 1;
+    if (config?.type === 'r2-bucket') counts.r2 += 1;
+    if (config?.type === 'local-folder') counts.localFolder += 1;
+    if (config?.type === 'app-storage') counts.appStorage += 1;
+  });
+
+  return counts;
+};
+
+const countViewerPreferenceKeys = () => {
+  return [
+    QUALITY_PRESET_KEY,
+    DEBUG_STOCHASTIC_KEY,
+    DEBUG_SPARK_STDDEV_KEY,
+    DEBUG_FPS_LIMIT_KEY,
+    UI_PREFERENCES_KEY,
+  ].reduce((total, key) => total + (hasLocalStorageKey(key) ? 1 : 0), 0);
+};
+
 const clearLocalStorageKey = (key) => {
   if (typeof window === 'undefined' || !window.localStorage) return 0;
   const existed = window.localStorage.getItem(key) !== null;
@@ -671,6 +793,77 @@ const clearSourcesByType = async (type) => {
     if (ok) removed += 1;
   }
   return removed;
+};
+
+export const getLocalDataAvailability = async (options = {}) => {
+  const exportScope = options?.exportScope || null;
+  const scopeMode = exportScope?.mode === 'current-collection' ? 'current-collection' : 'all-data';
+  const scopeNameMatcher = buildNameMatcher(exportScope?.assetNames || []);
+  const scopedSourceId = exportScope?.activeSourceId || null;
+  const scopedSourceType = exportScope?.activeSourceType || null;
+
+  const [allSources, allFileSettings, previewRecords, assetCacheStats] = await Promise.all([
+    loadAllSources(),
+    listAllFileSettings(),
+    listPreviewRecords(),
+    getAssetCacheStats(),
+  ]);
+
+  const sourceCounts = countSourcesByType(allSources);
+  const supabaseSettings = loadSupabaseSettings();
+  const r2Settings = loadR2Settings();
+  const cloudGpuSettings = loadCloudGpuSettings();
+  const supabaseManifestCacheCount = countLocalStorageKeysByPrefix('supabase-manifest-cache:');
+  const r2ManifestCacheCount = countLocalStorageKeysByPrefix('r2-manifest-cache:');
+  const viewerPreferenceCount = countViewerPreferenceKeys();
+  const scopedSourceCount = scopedSourceId
+    ? allSources.filter((config) => config?.id === scopedSourceId).length
+    : 0;
+  const scopedFileSettingsCount = scopeMode === 'current-collection' && scopeNameMatcher.hasNames
+    ? allFileSettings.filter((record) => scopeNameMatcher.has(record?.fileName)).length
+    : 0;
+  const scopedPreviewCount = scopeMode === 'current-collection' && scopeNameMatcher.hasNames
+    ? previewRecords.filter((record) => scopeNameMatcher.has(record?.fileName)).length
+    : 0;
+  const scopedConnectionCount = scopedSourceType === 'supabase-storage'
+    ? (supabaseSettings ? 1 : 0)
+    : scopedSourceType === 'r2-bucket'
+      ? (r2Settings ? 1 : 0)
+      : 0;
+  const assetCacheTotal = (assetCacheStats?.assetBlobCount || 0) + (assetCacheStats?.manifestCount || 0);
+
+  return {
+    clearData: {
+      clearUrlCollections: buildAvailabilityEntry(sourceCounts.publicUrl),
+      clearSupabaseCollections: buildAvailabilityEntry(sourceCounts.supabase),
+      clearR2Collections: buildAvailabilityEntry(sourceCounts.r2),
+      clearLocalFolderCollections: buildAvailabilityEntry(sourceCounts.localFolder),
+      clearAppStorageCollections: buildAvailabilityEntry(sourceCounts.appStorage),
+      clearCloudGpuSettings: buildAvailabilityEntry(cloudGpuSettings ? 1 : 0),
+      clearSupabaseSettings: buildAvailabilityEntry((supabaseSettings ? 1 : 0) + supabaseManifestCacheCount),
+      clearR2Settings: buildAvailabilityEntry((r2Settings ? 1 : 0) + r2ManifestCacheCount),
+      clearViewerPrefs: buildAvailabilityEntry(viewerPreferenceCount),
+      clearFileSettings: buildAvailabilityEntry(allFileSettings.length),
+      clearFilePreviews: buildAvailabilityEntry(previewRecords.length),
+      clearAssetCache: buildAvailabilityEntry(assetCacheTotal),
+    },
+    exportAllData: {
+      includeUrlCollections: buildAvailabilityEntry(sourceCounts.publicUrl),
+      includeCloudGpuSettings: buildAvailabilityEntry(cloudGpuSettings ? 1 : 0),
+      includeSupabaseCollections: buildAvailabilityEntry(sourceCounts.supabase),
+      includeSupabaseSettings: buildAvailabilityEntry(supabaseSettings ? 1 : 0),
+      includeR2Collections: buildAvailabilityEntry(sourceCounts.r2),
+      includeR2Settings: buildAvailabilityEntry(r2Settings ? 1 : 0),
+      includeFilePreviews: buildAvailabilityEntry(previewRecords.length),
+      includeFileSettings: buildAvailabilityEntry(allFileSettings.length),
+    },
+    exportCurrentCollection: {
+      includeCollectionData: buildAvailabilityEntry(scopedSourceCount),
+      includeConnectionData: buildAvailabilityEntry(scopedConnectionCount),
+      includeFilePreviews: buildAvailabilityEntry(scopedPreviewCount),
+      includeFileSettings: buildAvailabilityEntry(scopedFileSettingsCount),
+    },
+  };
 };
 
 export const clearSelectedLocalData = async (options = {}) => {
@@ -860,6 +1053,15 @@ export const importTransferBundleFromBuffer = async (arrayBuffer) => {
     }
   }
 
+  if (Array.isArray(data.removedAssets)) {
+    for (const entry of data.removedAssets) {
+      const sourceId = entry?.sourceId;
+      const assetNames = normalizeNameList(entry?.assetNames || []);
+      if (!sourceId || assetNames.length === 0) continue;
+      await addRemovedAssetNames(sourceId, assetNames);
+    }
+  }
+
   if (Array.isArray(data.fileSettings)) {
     for (const record of data.fileSettings) {
       if (!record?.fileName) continue;
@@ -940,6 +1142,15 @@ export const importTransferManifest = async (manifest) => {
         summary.importedSources.push(source);
       }
       summary.sourcesImported += 1;
+    }
+  }
+
+  if (Array.isArray(data.removedAssets)) {
+    for (const entry of data.removedAssets) {
+      const sourceId = entry?.sourceId;
+      const assetNames = normalizeNameList(entry?.assetNames || []);
+      if (!sourceId || assetNames.length === 0) continue;
+      await addRemovedAssetNames(sourceId, assetNames);
     }
   }
 

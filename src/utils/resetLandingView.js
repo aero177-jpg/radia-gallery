@@ -11,6 +11,12 @@ export const resetLandingView = ({ setHasDefaultSource, setLandingVisible, statu
   state.setAssets([]);
   state.setCurrentAssetIndex(-1);
   state.setFillMode(false);
+  // Restore default viewer UI state so collections opened from landing
+  // start with controls visible, matching direct route loads.
+  state.setViewerControlsDimmed(false);
+  state.setSlideshowPlaying(false);
+  state.setAssetSidebarOpen(false);
+  state.setPanelOpen(false);
 
   resetSplatManager();
   setCurrentMesh(null);
