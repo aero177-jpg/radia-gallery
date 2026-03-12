@@ -35,6 +35,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
   ];
   const controlsKeys = ['controls.desktop', 'controls.mobile'];
   const connectionsKeys = ['connections.storage', 'connections.cloud-gpu'];
+  const sharingKeys = ['sharing.transfer-bundles', 'sharing.embed-links'];
   const troubleshootingKeys = [
     'troubleshooting.render',
     'troubleshooting.collections',
@@ -44,6 +45,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
   const isSettingsOpen = isAnyOpen(settingsKeys);
   const isControlsOpen = isAnyOpen(controlsKeys);
   const isConnectionsOpen = isAnyOpen(connectionsKeys);
+  const isSharingOpen = isAnyOpen(sharingKeys);
   const isTroubleshootingOpen = isAnyOpen(troubleshootingKeys);
 
   return (
@@ -191,6 +193,29 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                  <br/><br/>If you are in a temporary collection, your downloaded files will be removed when you exit, be sure to go to advanced settings and click "Export scenes".
               </p>
 
+            </Section>
+            <div class="controls-section-divider" />
+
+          </Section>
+
+          <Section title="Sharing" isOpen={isSharingOpen}>
+            <Section title="Transfer bundles and config URLs" isOpen={isSubsectionOpen('sharing.transfer-bundles')}>
+              <ul>
+                <li><strong>Client-side only:</strong> This app does not keep your collections or connection setup on a server for you. If you want to move your current setup to another device or share it with someone else, export it from <strong>Transfer bundle</strong>.</li>
+                <li><strong>Open import dialog:</strong> The import flow is available from the home page under <strong>Connect -&gt; Import configs</strong>, or from the sharing section inside the app settings.</li>
+                <li><strong>Raw JSON export:</strong> Export JSON when you only need the saved collection/config data. Another user can import it by pasting the file directly, or you can host the JSON on a public URL such as npoint.io and import from that URL.</li>
+                <li><strong>ZIP export:</strong> Export ZIP when you also want bundled previews for faster collection loading after import. ZIP exports can be imported from a public URL or by pasting/dropping the file directly into the import dialog.</li>
+                <li><strong>Encrypted keys:</strong> If stored keys were encrypted when exported, they stay encrypted in the transfer bundle and will still require the same password after import on the new device.</li>
+                <li><strong>Shareable config links:</strong> After uploading an exported JSON or ZIP to a public direct URL, use the generated config URL in the transfer dialog. That link adds your import URL to the viewer, so the recipient can open the app and import the shared setup from that hosted file.</li>
+              </ul>
+            </Section>
+
+            <Section title="Embeddable link generator" isOpen={isSubsectionOpen('sharing.embed-links')}>
+              <ul>
+                <li><strong>What it does:</strong> The embed generator creates a read-only, stripped-down version of the app for sharing a collection without the full editing and management UI.</li>
+                <li><strong>How it loads:</strong> The generated embed reads from a hosted JSON or ZIP config, so you can point it at the same exported transfer data you are sharing publicly.</li>
+                <li><strong>Best use:</strong> Use embeds when you want a cleaner viewer experience for websites, portfolios, or simple sharing, while keeping the full app available separately for editing and imports.</li>
+              </ul>
             </Section>
             <div class="controls-section-divider" />
 

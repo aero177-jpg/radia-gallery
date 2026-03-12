@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faCloud,
@@ -18,6 +18,7 @@ import {
   CLEAR_DATA_OPTIONS,
   clearSelectedLocalData,
   createInitialClearDataOptions,
+  getLocalDataAvailability,
 } from '../utils/debugTransfer.js';
 import Modal from './Modal';
 import SelectableOptionItem from './SelectableOptionItem';
@@ -78,8 +79,16 @@ const formatSummary = (summary) => {
   return parts.length ? parts.join(', ') : 'No matching records found';
 };
 
+const keepAvailableSelections = (selection, availability = {}) => {
+  return Object.fromEntries(
+    Object.entries(selection).map(([key, value]) => [key, availability[key]?.available ? value : false]),
+  );
+};
+
 function ClearDataModal({ isOpen, onClose, addLog }) {
   const [clearOptions, setClearOptions] = useState(() => createInitialClearDataOptions());
+  const [availableClearOptions, setAvailableClearOptions] = useState(null);
+  const [availabilityBusy, setAvailabilityBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -91,12 +100,58 @@ function ClearDataModal({ isOpen, onClose, addLog }) {
     [],
   );
 
+  const availableSections = useMemo(() => {
+    if (!availableClearOptions) return [];
+    return clearDataSections
+      .map((section) => ({
+        ...section,
+        keys: section.keys.filter((key) => availableClearOptions[key]?.available),
+      }))
+      .filter((section) => section.keys.length > 0);
+  }, [availableClearOptions]);
+
+  const hasAvailableOptions = availableSections.length > 0;
+
   const resetState = useCallback(() => {
     setClearOptions(createInitialClearDataOptions());
     setBusy(false);
     setError(null);
     setSuccess(null);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAvailableClearOptions(null);
+      setAvailabilityBusy(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setAvailabilityBusy(true);
+
+    getLocalDataAvailability()
+      .then((availability) => {
+        if (cancelled) return;
+        const nextAvailable = availability?.clearData || {};
+        setAvailableClearOptions(nextAvailable);
+        setClearOptions((prev) => keepAvailableSelections(prev, nextAvailable));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('[ClearDataModal] Failed to inspect local data availability', err);
+        const fallback = Object.fromEntries(
+          CLEAR_DATA_OPTIONS.map((option) => [option.key, { available: true, count: 0 }]),
+        );
+        setAvailableClearOptions(fallback);
+      })
+      .finally(() => {
+        if (!cancelled) setAvailabilityBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   const handleClose = useCallback(() => {
     resetState();
@@ -111,7 +166,7 @@ function ClearDataModal({ isOpen, onClose, addLog }) {
   }, []);
 
   const handleClearSelected = useCallback(async () => {
-    if (!hasSelection || busy) return;
+    if (!hasSelection || busy || availabilityBusy) return;
     setBusy(true);
     setError(null);
     setSuccess(null);
@@ -130,7 +185,7 @@ function ClearDataModal({ isOpen, onClose, addLog }) {
     } finally {
       setBusy(false);
     }
-  }, [addLog, busy, clearOptions, hasSelection]);
+  }, [addLog, availabilityBusy, busy, clearOptions, hasSelection]);
 
   if (!isOpen) return null;
 
@@ -161,7 +216,20 @@ function ClearDataModal({ isOpen, onClose, addLog }) {
           paddingRight: '2px',
         }}
       >
-        {clearDataSections.map((section) => (
+        {availabilityBusy && !availableClearOptions && (
+          <p class="dialog-subtitle" style={{ margin: 0 }}>
+            Checking saved data...
+          </p>
+        )}
+
+        {!availabilityBusy && availableClearOptions && !hasAvailableOptions && (
+          <div class="form-info" style={{ marginTop: 0 }}>
+            <FontAwesomeIcon icon={faCheck} />
+            {' '}No saved local data was found to clear.
+          </div>
+        )}
+
+        {availableSections.map((section) => (
           <div key={section.title}>
             <div class="settings-divider" style={{ margin: '4px 0 10px' }}>
               {section.title}
@@ -221,7 +289,7 @@ function ClearDataModal({ isOpen, onClose, addLog }) {
         <button
           class="primary-button danger"
           onClick={handleClearSelected}
-          disabled={!hasSelection || busy}
+          disabled={!hasSelection || busy || availabilityBusy}
           style={{ height: '36px', padding: '0 16px', minWidth: '140px', fontSize: '14px' }}
         >
           {busy ? (

@@ -10,24 +10,12 @@ const getFullscreenElement = () => {
   return document.fullscreenElement || document.webkitFullscreenElement || null;
 };
 
-const isBrowserWindowFullscreen = () => {
-  if (typeof window === 'undefined' || typeof window.screen === 'undefined') {
-    return false;
-  }
-
-  const tolerancePx = 2;
-  return (
-    window.innerWidth >= window.screen.width - tolerancePx &&
-    window.innerHeight >= window.screen.height - tolerancePx
-  );
-};
-
 export default function useFullscreenControls({ resize, requestRender } = {}) {
   const [isRegularFullscreen, setIsRegularFullscreen] = useState(false);
 
   useEffect(() => {
     const syncRegularFullscreen = () => {
-      setIsRegularFullscreen(Boolean(getFullscreenElement()) || isBrowserWindowFullscreen());
+      setIsRegularFullscreen(Boolean(getFullscreenElement()));
     };
 
     syncRegularFullscreen();

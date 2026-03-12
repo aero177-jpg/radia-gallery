@@ -250,7 +250,6 @@ export const KeyboardIcon = ({ size = 16, className, ...props }) => (
     class={className}
     {...props}
   >
-    <title>Keyboard</title>
     <path d="M10 8h.01" />
     <path d="M12 12h.01" />
     <path d="M14 8h.01" />

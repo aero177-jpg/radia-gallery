@@ -20,7 +20,7 @@ import {
   updateDollyZoomBaselineFromCamera,
   THREE,
 } from "./viewer.js";
-import { applyPreviewBackground, crossFadePreviewBackground, fadeOutBackground, captureAndApplyBackground, clearBackground, hasBackgroundForPreview } from "./backgroundManager.js";
+import { applyPreviewBackground, crossFadePreviewBackground, fadeOutBackground, captureAndApplyBackground, clearBackground, hasBackgroundForPreview, cancelBackgroundTransition } from "./backgroundManager.js";
 import { savePreviewBlob, listCachedFileNames } from "./fileStorage.js";
 import {
   fitViewToMesh,
@@ -40,6 +40,7 @@ import {
 import {
   slideOutAnimation,
   slideInAnimation,
+  cancelResetAnimation,
   cancelContinuousZoomAnimation,
   cancelContinuousDollyZoomAnimation,
   cancelContinuousOrbitAnimation,
@@ -52,6 +53,7 @@ import { isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode } from "
 import { applyIntrinsicsAspect, updateViewerAspectRatio, resize } from "./layout.js";
 import { cleanupSlideTransitionState } from "./transitionUtils.js";
 import { hydrateAssetPreviewFromStorage, replacePreviewUrl, formatBytes } from "./previewManager.js";
+import { commitSlideshowTransition, shouldPauseSlideshowTransitionOnCommit } from "./slideshowTransitionState.js";
 
 // Re-export layout helpers for existing callers
 export { updateViewerAspectRatio, resize } from "./layout.js";
@@ -62,6 +64,35 @@ let isNavigationLocked = false;
 export const isNavigationLockedRef = () => isNavigationLocked;
 export const setNavigationLocked = (locked) => {
   isNavigationLocked = locked;
+};
+
+export const cancelActiveSlideshowTransitionEffects = (options = {}) => {
+  const preserveContinuousAnimations = options.preserveContinuousAnimations === true;
+
+  cleanupSlideTransitionState();
+  cancelResetAnimation();
+
+  if (!preserveContinuousAnimations) {
+    cancelContinuousZoomAnimation();
+    cancelContinuousDollyZoomAnimation();
+    cancelContinuousOrbitAnimation();
+    cancelContinuousVerticalOrbitAnimation();
+  }
+
+  clearContinuousHandoff();
+  cancelBackgroundTransition();
+
+  isNavigationLocked = false;
+  ++loadGeneration;
+
+  const viewerEl = document.getElementById('viewer');
+  if (viewerEl) {
+    viewerEl.classList.remove('loading', 'slide-out', 'slide-in');
+  }
+
+  const store = getStoreState();
+  store.setIsLoading(false);
+  requestRender();
 };
 
 /**
@@ -590,7 +621,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   cleanupSlideTransitionState();
 
   const store = getStoreState();
-  const { slideDirection, outgoingCustomAnimationSettings } = options;
+  const { slideDirection, outgoingCustomAnimationSettings, slideshowTransitionId } = options;
+  const shouldPauseTransitionLanding = () => slideshowTransitionId != null
+    && shouldPauseSlideshowTransitionOnCommit(slideshowTransitionId);
   const forceFadeForNonSequential = !slideDirection;
   const isFirstLoad = !hasLoadedFirstAsset; // Detect first asset load before any mesh exists
   const wasAlreadyCached = isSplatCached(asset);
@@ -768,6 +801,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     }
 
     setCurrentMesh(entry.mesh);
+    if (slideshowTransitionId != null) {
+      commitSlideshowTransition(slideshowTransitionId, { phase: 'asset-activated' });
+    }
     viewerEl.classList.add("has-mesh");
     spark?.update?.({ scene });
 
@@ -984,7 +1020,15 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         cachedSlideInOpts.duration = extDuration;
         cachedSlideInOpts.ease = createExtendedEaseOut(base.duration, extDuration);
       }
-      await slideInAnimation(slideDirection, cachedSlideInOpts);
+      if (shouldPauseTransitionLanding()) {
+        const viewerEl = document.getElementById('viewer');
+        if (viewerEl) {
+          viewerEl.classList.remove('slide-out', 'slide-in');
+        }
+        requestRender();
+      } else {
+        await slideInAnimation(slideDirection, cachedSlideInOpts);
+      }
 
       // Bail out if a newer load superseded this one during the slide-in
       if (loadGeneration !== thisGeneration) return;
@@ -997,7 +1041,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     } else {
       // For first load, skip camera animation entirely - just fade in
       // For subsequent loads, use the configured animation
-      const shouldAnimateCamera = !isFirstLoad && !wasImmersiveModeActive && store.animationEnabled;
+      const shouldAnimateCamera = !isFirstLoad && !wasImmersiveModeActive && store.animationEnabled && !shouldPauseTransitionLanding();
 
       if (!shouldAnimateCamera) {
         // First load / no animation: apply camera directly without the
@@ -1077,7 +1121,15 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
           transitionSlideInOpts.duration = extDuration;
           transitionSlideInOpts.ease = createExtendedEaseOut(base.duration, extDuration);
         }
-        await slideInAnimation(transitionDirection, transitionSlideInOpts);
+        if (shouldPauseTransitionLanding()) {
+          const viewerEl = document.getElementById('viewer');
+          if (viewerEl) {
+            viewerEl.classList.remove('slide-out', 'slide-in');
+          }
+          requestRender();
+        } else {
+          await slideInAnimation(transitionDirection, transitionSlideInOpts);
+        }
 
         // Bail out if a newer load superseded this one during the slide-in
         if (loadGeneration !== thisGeneration) return;
@@ -1983,6 +2035,7 @@ export const loadNextAsset = async (options = {}) => {
   try {
     const store = getStoreState();
     const outgoingCustomAnimationSettings = store.fileCustomAnimation;
+    const { slideshowTransitionId } = options;
     const prevAsset = getAssetByIndex(getCurrentAssetIndex());
     const asset = nextAsset();
     if (asset) {
@@ -2000,11 +2053,11 @@ export const loadNextAsset = async (options = {}) => {
           // doesn't freeze after a manual advance.
           restartContinuousIfPlaying();
         } else {
-          await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings });
+          await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings, slideshowTransitionId });
         }
       } else {
         if (isViewInstanceAsset(prevAsset)) fadeOutBackground();
-        await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings });
+        await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings, slideshowTransitionId });
       }
     }
   } finally {

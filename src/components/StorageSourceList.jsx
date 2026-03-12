@@ -102,22 +102,24 @@ function StorageSourceList({ onAddSource, onSelectSource, onOpenCloudGpu, listOn
 
   return (
     <div class="settings-group">
-      <div 
-        class="group-toggle" 
+      <div
+        class="group-toggle"
         aria-expanded={isListExpanded}
         onClick={() => setIsListExpanded(!isListExpanded)}
       >
         <span class="settings-eyebrow">Collections</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginRight: '-8px' }}>
-          <button 
-            class="add-source-btn" 
-            onClick={(e) => { e.stopPropagation(); onAddSource(); }} 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button
+            class="add-source-btn"
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onAddSource(); }}
             title="Add storage source"
+            aria-label="Add storage source"
             style={{ width: '28px', height: '22px', fontSize: '11px' }}
           >
             <FontAwesomeIcon icon={faPlus} />
           </button>
-          <FontAwesomeIcon icon={faChevronDown} class="chevron" />
+          <FontAwesomeIcon icon={faChevronDown} className="chevron" />
         </div>
       </div>
 

@@ -7,7 +7,7 @@
  */
 
 import { useStore } from "./store.js";
-import { loadNextAsset, buildContinuousHandoff, getBaseAssetId } from "./fileLoader.js";
+import { loadNextAsset, buildContinuousHandoff, getBaseAssetId, cancelActiveSlideshowTransitionEffects } from "./fileLoader.js";
 import {
   hasMultipleAssets,
   getCurrentAssetIndex,
@@ -34,6 +34,12 @@ import {
   clearContinuousHandoff,
 } from "./continuousAnimations.js";
 import { resolveSlideInOptions, computeSlideshowTimingExtension } from "./slideConfig.js";
+import {
+  startSlideshowTransition,
+  setSlideshowTransitionPauseOnCommit,
+  cancelSlideshowTransition,
+  getSlideshowTransitionInfo,
+} from "./slideshowTransitionState.js";
 import { camera, controls, requestRender, THREE } from "./viewer.js";
 import gsap from "gsap";
 
@@ -52,6 +58,18 @@ let pauseSnapshot = null;
 
 /** GSAP tween used for the glide-to-position on resume / fresh start. */
 let glideTween = null;
+
+let activeSlideshowTransitionId = null;
+
+const setFreshResumeSnapshot = (assetIndex = getStoreState().currentAssetIndex) => {
+  pauseSnapshot = {
+    position: null,
+    target: null,
+    remainingHoldMs: 0,
+    hadActiveTween: false,
+    assetIndex,
+  };
+};
 
 // ============================================================================
 // Store subscription – react to setting changes during playback
@@ -123,6 +141,15 @@ export const stopSlideshow = () => {
   // Clear any queued same-base handoff
   clearContinuousHandoff();
 
+  const transitionId = activeSlideshowTransitionId;
+  const transitionInfo = transitionId ? getSlideshowTransitionInfo(transitionId) : null;
+  if (transitionId) {
+    setSlideshowTransitionPauseOnCommit(transitionId, true);
+    if (transitionInfo?.committed) {
+      cancelActiveSlideshowTransitionEffects();
+    }
+  }
+
   // Capture remaining hold time
   let remainingHoldMs = 0;
   if (holdTimeoutId != null) {
@@ -140,6 +167,11 @@ export const stopSlideshow = () => {
 
   // Pause (not kill) the continuous animation so we can resume it
   pauseContinuousAnimations();
+
+  if (transitionId) {
+    setFreshResumeSnapshot();
+    return;
+  }
 
   // Save snapshot for resume (include asset index so we can detect stale snapshots)
   pauseSnapshot = {
@@ -470,6 +502,12 @@ const advanceAndSchedule = async () => {
           // Queue handoff — the current animation's onComplete will process it
           queueContinuousHandoff({
             ...handoff,
+            shouldContinueMotion: () => getStoreState().slideshowPlaying === true,
+            onMotionSkipped: () => {
+              if (!isPlaying) {
+                setFreshResumeSnapshot(nextIdx);
+              }
+            },
             onStarted: () => {
               // Schedule next advance AFTER the new animation begins
               if (isPlaying) scheduleNextAdvance();
@@ -486,8 +524,12 @@ const advanceAndSchedule = async () => {
   // Normal path: full asset load with transitions
   // Skip the timer reset inside loadNextAsset — we manage our own scheduling
   // to prevent premature timers firing while a large file is still loading.
+  let transitionId = null;
   try {
-    await loadNextAsset({ skipTimerReset: true });
+    transitionId = startSlideshowTransition();
+    activeSlideshowTransitionId = transitionId;
+
+    await loadNextAsset({ skipTimerReset: true, slideshowTransitionId: transitionId });
 
     if (isPlaying) {
       scheduleNextAdvance();
@@ -496,6 +538,13 @@ const advanceAndSchedule = async () => {
     console.warn('Slideshow advance failed:', err);
     if (isPlaying) {
       scheduleNextAdvance();
+    }
+  } finally {
+    if (transitionId) {
+      cancelSlideshowTransition(transitionId);
+      if (activeSlideshowTransitionId === transitionId) {
+        activeSlideshowTransitionId = null;
+      }
     }
   }
 };
