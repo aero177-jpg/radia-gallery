@@ -322,6 +322,8 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
     setShowSlowLoadingNotice(false);
 
+    if (slideshowPlaying) return;
+
     const targetMeshId = currentAsset?.cacheKey || currentAsset?.baseAssetId || currentAsset?.id || null;
     const waitingForFirstAsset = Boolean(activeSourceId) && assets.length === 0;
     const waitingForTargetAsset = Boolean(targetMeshId) && currentMeshAssetId !== targetMeshId;
@@ -333,6 +335,8 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
     slowLoadingTimeoutRef.current = setTimeout(() => {
       const nextState = useStore.getState();
+      if (nextState.slideshowPlaying) return;
+
       const nextAsset = nextState.currentAssetIndex >= 0
         ? nextState.assets[nextState.currentAssetIndex]
         : null;
@@ -351,7 +355,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
         slowLoadingTimeoutRef.current = null;
       }
     };
-  }, [activeSourceId, assets.length, currentAsset?.id, currentAsset?.cacheKey, currentAsset?.baseAssetId, currentMeshAssetId, isLoading, showEmptyState, requiresR2Unlock]);
+  }, [activeSourceId, assets.length, currentAsset?.id, currentAsset?.cacheKey, currentAsset?.baseAssetId, currentMeshAssetId, isLoading, showEmptyState, requiresR2Unlock, slideshowPlaying]);
 
 
   /**
