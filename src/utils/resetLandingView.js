@@ -10,6 +10,7 @@ export const resetLandingView = ({ setHasDefaultSource, setLandingVisible, statu
   state.clearActiveSource();
   state.setAssets([]);
   state.setCurrentAssetIndex(-1);
+  state.setIsLoading(false);
   state.setFillMode(false);
   // Restore default viewer UI state so collections opened from landing
   // start with controls visible, matching direct route loads.

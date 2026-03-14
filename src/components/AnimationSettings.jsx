@@ -12,6 +12,7 @@ import { setLoadAnimationEnabled, setLoadAnimationIntensity, setLoadAnimationDir
 import { saveAnimationSettings, savePreviewBlob, saveCustomAnimationSettings, saveViewCustomAnimationSettings } from '../fileStorage';
 import { scene, renderer, composer, THREE, currentMesh } from '../viewer';
 import { updateCustomAnimationInCache, clearCustomAnimationInCache, updateViewCustomAnimationInCache, clearViewCustomAnimationInCache } from '../splatManager';
+import { setLoopSceneEnabled } from '../slideshowController';
 
 
 const PREVIEW_TARGET_HEIGHT = 128;
@@ -126,6 +127,7 @@ function AnimationSettings() {
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const slideshowContinuousMode = useStore((state) => state.slideshowContinuousMode);
+  const slideshowHold = useStore((state) => state.slideshowHold);
   const continuousDollyZoom = useStore((state) => state.continuousDollyZoom);
   const slideshowDuration = useStore((state) => state.slideshowDuration);
   const animSettingsExpanded = useStore((state) => state.animSettingsExpanded);
@@ -297,6 +299,7 @@ function AnimationSettings() {
     fileCustomAnimation?.slideType && fileCustomAnimation.slideType !== 'default'
       ? fileCustomAnimation.slideType
       : slideMode;
+  const hasMultipleAssets = (assets?.length ?? 0) > 1;
   const hasFileSlideshowOverride = Boolean(
     (fileCustomAnimation?.slideType && fileCustomAnimation.slideType !== 'default')
     || (fileCustomAnimation?.transitionRange && fileCustomAnimation.transitionRange !== 'default')
@@ -402,6 +405,10 @@ function AnimationSettings() {
     });
   }, [currentFileName, assets, currentAssetIndex]);
 
+  const handleLoopSceneToggle = useCallback((e) => {
+    setLoopSceneEnabled(e.target.checked);
+  }, []);
+
   return (
     <div class="settings-group">
       {/* Collapsible header */}
@@ -477,6 +484,63 @@ function AnimationSettings() {
           </select>
         </div>
 
+        {slideshowContinuousMode && slideMode !== 'fade' && (
+          <div class="control-row select-row">
+            <span class="control-label">Transition range</span>
+            <select value={continuousMotionSize} onChange={handleContinuousSizeChange}>
+              {CONTINUOUS_SIZE_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {slideMode !== 'fade' && (
+          <div class="control-row animate-toggle-row">
+            <span class="control-label">Continuous Mode</span>
+            <label class="switch">
+              <input
+                type="checkbox"
+                checked={slideshowContinuousMode}
+                onChange={(e) => setSlideshowContinuousModeStore(e.target.checked)}
+              />
+              <span class="switch-track" aria-hidden="true" />
+            </label>
+          </div>
+        )}
+
+        {slideshowContinuousMode && slideMode !== 'fade' ? (
+          <div class="control-row">
+            <span class="control-label">Duration</span>
+            <div class="control-track">
+              <input
+                type="range"
+                min="3"
+                max="20"
+                step="1"
+                value={continuousMotionDuration - 1}
+                onInput={handleContinuousDurationChange}
+              />
+              <span class="control-value">{continuousMotionDuration - 1}s</span>
+            </div>
+          </div>
+        ) : (
+          <div class="control-row">
+            <span class="control-label">Hold Time</span>
+            <div class="control-track">
+              <input
+                type="range"
+                min="0"
+                max="10"
+                step="0.5"
+                value={slideshowDuration}
+                onInput={(e) => setSlideshowDurationStore(Number(e.target.value))}
+              />
+              <span class="control-value">{slideshowDuration}s</span>
+            </div>
+          </div>
+        )}
+
         {/* Transition speed selector */}
         {/* <div class="control-row select-row">
           <span class="control-label">Speed</span>
@@ -487,13 +551,23 @@ function AnimationSettings() {
           </select>
         </div> */}
 
-        {hasFileSlideshowOverride && (
-          <div class="control-row" style={{ justifyContent: 'flex-end', paddingTop: '0', paddingBottom: '0' }}>
+          <div class="control-row animate-opacity" style={{ justifyContent: 'flex-end', paddingTop: '0', paddingBottom: '0', opacity: hasFileSlideshowOverride ? 1 : 0 }}>
             <span class="tier-badge">Override Active</span>
           </div>
-        )}
         <div class="settings-divider">
           <span>Custom transitions</span>
+        </div>
+        <div class="control-row animate-toggle-row">
+          <span class="control-label">Loop scene</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={slideshowHold}
+              onChange={handleLoopSceneToggle}
+              disabled={!hasMultipleAssets}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
         </div>
         <div class="control-row select-row">
           <span class="control-label">Slide</span>
@@ -543,71 +617,6 @@ function AnimationSettings() {
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
-          </div>
-        )}
-        <div class="settings-divider">
-          <span>Slideshow</span>
-        </div>
-
-
-        {/* Slideshow continuous mode toggle */}
-        {slideMode !== 'fade' && (
-          <div class="control-row animate-toggle-row">
-            <span class="control-label">Continuous Mode</span>
-            <label class="switch">
-              <input
-                type="checkbox"
-                checked={slideshowContinuousMode}
-                onChange={(e) => setSlideshowContinuousModeStore(e.target.checked)}
-              />
-              <span class="switch-track" aria-hidden="true" />
-            </label>
-          </div>
-        )}
-
-        {slideshowContinuousMode && slideMode !== 'fade' && (
-          <div class="control-row select-row">
-            <span class="control-label">Transition range</span>
-            <select value={continuousMotionSize} onChange={handleContinuousSizeChange}>
-              {CONTINUOUS_SIZE_OPTIONS.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {slideshowContinuousMode && slideMode !== 'fade' && (
-          <div class="control-row">
-            <span class="control-label">Duration</span>
-            <div class="control-track">
-              <input
-                type="range"
-                min="3"
-                max="20"
-                step="1"
-                value={continuousMotionDuration - 1}
-                onInput={handleContinuousDurationChange}
-              />
-              <span class="control-value">{continuousMotionDuration - 1}s</span>
-            </div>
-          </div>
-        )}
-
-        {/* Slideshow hold time (non-continuous) */}
-        {(!slideshowContinuousMode || slideMode === 'fade') && (
-          <div class="control-row">
-            <span class="control-label">Hold Time</span>
-            <div class="control-track">
-              <input
-                type="range"
-                min="0"
-                max="10"
-                step="0.5"
-                value={slideshowDuration}
-                onInput={(e) => setSlideshowDurationStore(Number(e.target.value))}
-              />
-              <span class="control-value">{slideshowDuration}s</span>
-            </div>
           </div>
         )}
 

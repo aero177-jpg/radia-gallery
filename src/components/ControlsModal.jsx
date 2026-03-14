@@ -57,7 +57,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
             <div class="controls-modal__intro">
               <p class="controls-modal__subtitle">
                 This app has a focus on 3dgs files with an intended perspective, viewed in a gallery or animated slideshow format.
-                This is not recommended for navigating large environmental splats or 360 exploration.
+                This is not recommended for navigating large models or 360 exploration.
                 We highly recommend using <strong>.sog</strong> formatted files for storage and performance gains.
               </p>
               <p class="controls-modal__subtitle" style={{ marginTop: "4px" }}>
@@ -89,7 +89,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li><strong>Zoom target:</strong> Sets a zoom limit for the current image, overriding slideshow continuous mode presets. "Far" is recommended for landscapes or distant subjects, for example.</li>
                 <li><strong>Dolly zoom:</strong> Makes a visually interesting zoom effect, at the cost of revealing distortion or artifacts.</li>
 
-                <li><strong>Transition Range:</strong> Adjusts how wide the orbit or zoom path is, but this can lead to seeing unwanted artifacts or deformed splats. </li>
+                <li><strong>Transition Range:</strong> Adjusts how wide the orbit or zoom path is, but this can lead to seeing unwanted artifacts or warped splats. </li>
               </ul>
             </Section>
 
@@ -98,17 +98,17 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Settings" isOpen={isSettingsOpen}>
             <Section title="Main Settings" isOpen={isSubsectionOpen('settings.main-settings')}>
               <ul>
-                <li><strong>Quality:</strong> Adjusts splat density. Experimental is a last resort option, not recommended. Further adjustments can be made in advanced settings.</li>
-                <li><strong>Orbit range:</strong> ml-sharp splats degrade at greater angles, this mitigates this and keeps focus on the target view. Auto adjusts in immersive mode on mobile. Disabled for splats missing ml-sharp metadata.</li>
+                <li><strong>Quality:</strong> Adjusts model density. Experimental is a last resort option, not recommended. Further adjustments can be made in advanced settings.</li>
+                <li><strong>Orbit range:</strong> ml-sharp splats degrade at greater angles, this mitigates this and keeps focus on the target view. Auto adjusts in immersive mode on mobile. Disabled for models missing ml-sharp metadata.</li>
                 <li><strong>FOV:</strong> Auto adjust depending on camera metadata. Click the eye symbol to add a slider to the viewer for a dolly-zoom effect.</li>
                 <li><strong>Recenter:</strong> Bring camera back to starting point. Hold to reset viewer, for example due to render glitch.</li>
-                <li><strong>Set focus depth:</strong> Orbit and zoom to a specified depth. Either click on the splat when prompted, or double click to focus on a point of interest, and click "set anchor as focus". Custom focus will be stored.</li>
+                <li><strong>Set focus depth:</strong> Orbit and zoom to a specified depth. Either click on the model when prompted, or double click to focus on a point of interest, and click "set anchor as focus". Custom focus will be stored.</li>
               </ul>
             </Section>
 
             <Section title="Additional Settings" isOpen={isSubsectionOpen('settings.additional-settings')}>
               <ul>
-                <li><strong>Custom Camera:</strong> This viewer auto sets the camera for optimal viewing of ml-sharp splats (with metadata). For others, manually adjust: scale to fill, rotate, double click, and zoom to frame intended view. You can add additional views on the same splat, click "edit custom camera", adjust camera, and save as new view.</li>
+                <li><strong>Custom Camera:</strong> This viewer auto sets the camera for optimal viewing of ml-sharp splats (with metadata). For others, manually adjust: scale to fill, rotate, double click, and zoom to frame intended view. You can add additional views on the same model, click "edit custom camera", adjust camera, and save as new view.</li>
                 <li><strong>Tilt Sensitivity:</strong> Adjusts how device rotation effects view in immersive mode.</li>
                 <li><strong>SBS separation:</strong> Appears if sbs enabled in advanced settings (experimental). Effects stereo depth perceived. Click focus icon for auto adjust.</li>
                 <li><strong>SBS stereo aspect:</strong> Manual aspect ratio adjustment to match display.</li>
@@ -121,7 +121,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Controls" isOpen={isControlsOpen}>
             <Section title="Desktop" isOpen={isSubsectionOpen('controls.desktop')}>
               <ul>
-                <li><strong>WASD QE:</strong> Navigate non ML-Sharp splat scenes. + <strong>shift</strong> to move faster.</li>
+                <li><strong>WASD QE:</strong> Navigate non ML-Sharp scenes. + <strong>shift</strong> to move faster.</li>
                 <li><strong>Double click:</strong> Zoom/orbit around point (hit refresh to clear).</li>
                 <li><strong>Click-drag:</strong> Orbit.</li>
                 <li><strong>Right click-drag:</strong> Pan.</li>
@@ -139,7 +139,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li>Pinch to zoom, drag to orbit, two finger drag to pan.</li>
                 <li>Swipe or tap left side of screen to toggle gallery panel.</li>
                 <li>In landscape, swipe/tap right side (or click upper right button) to open main menu. In portrait, swipe/tap bottom.</li>
-                <li>Swipe left or right in the lower part of the viewer (area with arrows) to advance splats.</li>
+                <li>Swipe left or right in the lower part of the viewer (area with arrows) to advance models.</li>
                 <li><strong>Tap:</strong> Pause slideshow, toggle UI.</li>
                 <li><strong>Immersive mode:</strong> Only tested on Android. Toggle with the “3d rotate” icon in the viewer. Drag to pan while moving the device to orbit. Click the focus icon to fix device sensor drift or set the current device angle as centered.</li>
               </ul>
@@ -150,7 +150,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
 
           <Section title="Connections" isOpen={isConnectionsOpen}>
             <p className='controls-modal__subtitle'>You can choose to add a remote connection, a local folder, or app storage (best for mobile or PWA desktop app). All remote connection configs are stored locally only, this app is strictly a frontend client. Configs can be exported/imported in advanced settings.         <br />
-              <br />    Splats are not automatically cached in browser due to size constraints, but can be manually cached in advanced settings for offline viewing, and bandwidth savings.
+              <br />    models are not automatically cached in browser due to size constraints, but can be manually cached in advanced settings for offline viewing, and bandwidth savings.
             </p>
 
             <Section title="Storage" isOpen={isSubsectionOpen('connections.storage')}>
@@ -224,12 +224,12 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Troubleshooting" isOpen={isTroubleshootingOpen}>
             <Section title="Render" isOpen={isSubsectionOpen('troubleshooting.render')}>
               <ul>
-                <li><strong>Cropped render:</strong> The viewer crops splats to improve performance. If edges are revealed in "fit to size", resize window or hold recenter button to fix.</li>
+                <li><strong>Cropped render:</strong> The viewer crops models to improve performance. If edges are revealed in "fit to size", resize window or hold recenter button to fix.</li>
                 <li><strong>Distorted preview:</strong> Previews generated on first load may capture partial renders. Click "regen preview" in advanced settings to fix (persisted).</li>
                 <li><strong>Background glow:</strong> This is a copy of preview for visual effect. May not appear on first render. Regenerate preview to correct issues, or remove in advanced settings.</li>
                 <li><strong>Missing previews:</strong> Only generated on first load. Click "batch previews" in advanced settings, or in the preview sidebar (available if multiple missing previews) to generate all.</li>
-                <li><strong>'Cracks' in splat:</strong> Thin areas may show cracks on performance or lower quality. "High" quality alleviates this but impacts performance.</li>
-                <li><strong>Poor performance:</strong> This app is focused on splat optimization, but some devices may still experience lag or stuttering. Integrated graphics and older mobile devices may be affected. Try adjusting quality presets, or adjust performance options in advanced settings. If running in browser, ensure that your dedicated GPU is utilized, and not your integrated graphics.</li>
+                <li><strong>'Cracks' in model:</strong> Thin areas may show cracks on performance or lower quality. "High" quality alleviates this but impacts performance.</li>
+                <li><strong>Poor performance:</strong> This app is focused on model optimization, but some devices may still experience lag or stuttering. Integrated graphics, older mobile devices, and standalone VR headsets may be affected. Try adjusting quality presets, or adjust performance options in advanced settings. If running in browser, ensure that your dedicated GPU is utilized, and not your integrated graphics.</li>
               </ul>
             </Section>
             <Section title="Collections" isOpen={isSubsectionOpen('troubleshooting.collections')}>

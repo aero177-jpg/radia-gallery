@@ -4,6 +4,7 @@
  */
 import { camera, controls, requestRender, forceRenderNow, THREE, updateDollyZoomBaselineFromCamera } from "./viewer.js";
 import { useStore } from "./store.js";
+import { reduceDollyZoomStartDelta } from "./slideConfig.js";
 import gsap from "gsap";
 
 // ============================================================================
@@ -480,6 +481,7 @@ export const continuousDollyZoomSlideIn = (duration, amount, options = {}) => {
     }
 
     const { startDelta, endDelta } = getContinuousDollyZoomDeltas();
+    const adjustedStartDelta = reduceDollyZoomStartDelta(startDelta);
 
     const baseFov = camera.fov;
     const baseDistance = camera.position.distanceTo(controls.target);
@@ -488,7 +490,7 @@ export const continuousDollyZoomSlideIn = (duration, amount, options = {}) => {
       .normalize();
     const baseTan = Math.tan(THREE.MathUtils.degToRad(baseFov / 2));
 
-    const startFov = THREE.MathUtils.clamp(baseFov + startDelta, 20, 120);
+    const startFov = THREE.MathUtils.clamp(baseFov + adjustedStartDelta, 20, 120);
     const endFov = THREE.MathUtils.clamp(baseFov + endDelta, 20, 120);
 
     const durationSec = getContinuousDurationSeconds('continuous-dolly-zoom', CONTINUOUS_ZOOM_DURATION);

@@ -7,7 +7,7 @@
  */
 
 import { useStore } from "./store.js";
-import { loadNextAsset, buildContinuousHandoff, getBaseAssetId, cancelActiveSlideshowTransitionEffects } from "./fileLoader.js";
+import { loadNextAsset, buildContinuousHandoff, getBaseAssetId, cancelActiveSlideshowTransitionEffects, replayCurrentAsset } from "./fileLoader.js";
 import {
   hasMultipleAssets,
   getCurrentAssetIndex,
@@ -61,6 +61,48 @@ let glideTween = null;
 
 let activeSlideshowTransitionId = null;
 
+const clearHoldTimer = () => {
+  if (holdTimeoutId != null) {
+    clearTimeout(holdTimeoutId);
+    holdTimeoutId = null;
+    holdDeadline = 0;
+  }
+};
+
+const clearGlideTween = () => {
+  if (glideTween) {
+    glideTween.kill();
+    glideTween = null;
+  }
+};
+
+const cancelContinuousMotion = () => {
+  cancelContinuousZoomAnimation();
+  cancelContinuousDollyZoomAnimation();
+  cancelContinuousOrbitAnimation();
+  cancelContinuousVerticalOrbitAnimation();
+};
+
+const cancelOwnedSlideshowTransition = () => {
+  if (!activeSlideshowTransitionId) return;
+  cancelActiveSlideshowTransitionEffects();
+  cancelSlideshowTransition(activeSlideshowTransitionId);
+  activeSlideshowTransitionId = null;
+};
+
+const prepareFreshSceneRestart = ({ keepPlaying = false } = {}) => {
+  pauseSnapshot = null;
+  clearGlideTween();
+  clearHoldTimer();
+  clearContinuousHandoff();
+  cancelLoadZoomAnimation();
+  cancelContinuousMotion();
+  cancelOwnedSlideshowTransition();
+  if (!keepPlaying) {
+    getStoreState().setSlideshowPlaying(false);
+  }
+};
+
 const setFreshResumeSnapshot = (assetIndex = getStoreState().currentAssetIndex) => {
   pauseSnapshot = {
     position: null,
@@ -110,9 +152,10 @@ export const startSlideshow = () => {
   isPlaying = true;
   getStoreState().setSlideshowPlaying(true);
 
-  if (pauseSnapshot) {
+  if (pauseSnapshot && !getStoreState().slideshowHold) {
     resumeFromPause();
   } else {
+    pauseSnapshot = null;
     beginFreshPlayback();
   }
 };
@@ -231,27 +274,34 @@ export const restartContinuousIfPlaying = () => {
  */
 export const resetSlideshow = () => {
   isPlaying = false;
-  pauseSnapshot = null;
-
-  cancelLoadZoomAnimation();
-  cancelContinuousZoomAnimation();
-  cancelContinuousDollyZoomAnimation();
-  cancelContinuousOrbitAnimation();
-  cancelContinuousVerticalOrbitAnimation();
-  clearContinuousHandoff();
-
-  if (glideTween) {
-    glideTween.kill();
-    glideTween = null;
-  }
-
-  if (holdTimeoutId != null) {
-    clearTimeout(holdTimeoutId);
-    holdTimeoutId = null;
-    holdDeadline = 0;
-  }
+  prepareFreshSceneRestart();
+  getStoreState().setSlideshowHoldWasPlaying(false);
 
   getStoreState().setSlideshowPlaying(false);
+};
+
+export const setLoopSceneEnabled = (enabled) => {
+  const store = getStoreState();
+  const nextEnabled = Boolean(enabled);
+  if (store.slideshowHold === nextEnabled) return;
+
+  if (nextEnabled) {
+    const wasPlaying = isPlaying || store.slideshowPlaying;
+    store.setSlideshowHoldWasPlaying(wasPlaying);
+    store.setSlideshowHold(true);
+    if (!wasPlaying) {
+      startSlideshow();
+    }
+    return;
+  }
+
+  const shouldContinuePlayback = store.slideshowHoldWasPlaying === true;
+  store.setSlideshowHold(false);
+  store.setSlideshowHoldWasPlaying(false);
+
+  if (!shouldContinuePlayback && (isPlaying || store.slideshowPlaying)) {
+    stopSlideshow();
+  }
 };
 
 // ============================================================================
@@ -359,27 +409,10 @@ const beginFreshPlayback = () => {
  * Cancels / starts the correct continuous animation and reschedules the timer.
  */
 const handleModeChangeWhilePlaying = () => {
-  // Kill any in-flight glide
-  if (glideTween) {
-    glideTween.kill();
-    glideTween = null;
-  }
-
-  // Kill any queued same-base handoff
+  clearGlideTween();
   clearContinuousHandoff();
-
-  // Cancel all current continuous animations
-  cancelContinuousZoomAnimation();
-  cancelContinuousDollyZoomAnimation();
-  cancelContinuousOrbitAnimation();
-  cancelContinuousVerticalOrbitAnimation();
-
-  // Clear existing timer
-  if (holdTimeoutId != null) {
-    clearTimeout(holdTimeoutId);
-    holdTimeoutId = null;
-    holdDeadline = 0;
-  }
+  cancelContinuousMotion();
+  clearHoldTimer();
 
   // Start the right animation for the new mode and reschedule
   startContinuousForCurrentMode();
@@ -451,10 +484,7 @@ const scheduleNextAdvance = () => {
  * Stores the deadline on the timeout so pause can compute remaining time.
  */
 const scheduleNextAdvanceMs = (ms) => {
-  if (holdTimeoutId != null) {
-    clearTimeout(holdTimeoutId);
-    holdTimeoutId = null;
-  }
+  clearHoldTimer();
 
   holdDeadline = Date.now() + ms;
   holdTimeoutId = setTimeout(() => {
@@ -473,6 +503,25 @@ const advanceAndSchedule = async () => {
 
   // Clear snapshot — we're moving to a new asset
   pauseSnapshot = null;
+
+  if (getStoreState().slideshowHold) {
+    try {
+      const replayed = await replayCurrentAsset({
+        slideDirection: 'next',
+        entranceOnly: false,
+        skipTimerReset: true,
+      });
+      if (replayed && isPlaying) {
+        scheduleNextAdvance();
+      }
+    } catch (err) {
+      console.warn('Slideshow replay failed:', err);
+      if (isPlaying) {
+        scheduleNextAdvance();
+      }
+    }
+    return;
+  }
 
   const store = getStoreState();
   const slideMode = resolveContinuousSlideMode(store);

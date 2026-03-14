@@ -72,7 +72,6 @@ const getPersistedJson = (key, fallback = null) => {
 
 
 const QUALITY_PRESET_KEY = 'qualityPreset';
-const DEBUG_STOCHASTIC_KEY = 'debugStochasticRendering';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
 
@@ -246,10 +245,10 @@ const persistUiPrefs = (state) => {
 };
 
 const QUALITY_PRESETS = {
-  high: { stdDev: 5, stochastic: false, fpsLimit: true },
-  default: { stdDev: 2.5, stochastic: false, fpsLimit: true },
-  performance: { stdDev: 1.8, stochastic: false, fpsLimit: false },
-  experimental: { stdDev: 1.8, stochastic: true, fpsLimit: false },
+  high: { stdDev: 5, fpsLimit: true },
+  default: { stdDev: 2.5, fpsLimit: true },
+  performance: { stdDev: 1.8, fpsLimit: false },
+  experimental: { stdDev: 1.8, fpsLimit: false },
 };
 
 const isMobileInitial = typeof window !== 'undefined' && Math.min(window.innerWidth, window.innerHeight) <= 768;
@@ -258,7 +257,6 @@ const persistedQualityPreset = getPersistedString(
   isMobileInitial ? 'performance' : 'default'
 );
 const persistedCustomStdDev = getPersistedNumber(DEBUG_SPARK_STDDEV_KEY, Math.sqrt(5));
-const persistedCustomStochastic = getPersistedBoolean(DEBUG_STOCHASTIC_KEY, false);
 const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
 
 const persistedUiPrefs = normalizeUiPrefs(getPersistedJson(UI_PREFERENCES_KEY, null));
@@ -268,7 +266,6 @@ const resolveInitialQuality = (preset) => {
   if (preset === 'debug-custom') {
     return {
       stdDev: persistedCustomStdDev,
-      stochastic: persistedCustomStochastic,
       fpsLimit: persistedCustomFpsLimit,
     };
   }
@@ -314,6 +311,8 @@ export const useStore = create(
   slideshowContinuousMode: persistedUiPrefs.animation?.slideshowContinuousMode ?? DEFAULT_UI_PREFS.animation.slideshowContinuousMode,
   continuousDollyZoom: persistedUiPrefs.animation?.continuousDollyZoom ?? DEFAULT_UI_PREFS.animation.continuousDollyZoom,
   slideshowDuration: persistedUiPrefs.animation?.slideshowDuration ?? DEFAULT_UI_PREFS.animation.slideshowDuration,
+  slideshowHold: false,
+  slideshowHoldWasPlaying: false,
   slideshowPlaying: false,
   viewerControlsDimmed: false,
   
@@ -399,7 +398,6 @@ export const useStore = create(
   // Debug
   debugLoadingMode: false,
   debugSettingsExpanded: false,
-  debugStochasticRendering: initialQuality.stochastic,
   debugFpsLimitEnabled: initialQuality.fpsLimit,
   debugSparkMaxStdDev: initialQuality.stdDev,
   qualityPreset: (QUALITY_PRESETS[persistedQualityPreset] || persistedQualityPreset === 'debug-custom')
@@ -517,6 +515,12 @@ export const useStore = create(
     set({ slideshowDuration: duration });
     persistUiPrefs({ ...get(), slideshowDuration: duration });
   },
+
+  /** Enables/disables runtime hold mode for slideshow looping */
+  setSlideshowHold: (enabled) => set({ slideshowHold: Boolean(enabled) }),
+
+  /** Tracks whether loop-scene was enabled while slideshow was already playing */
+  setSlideshowHoldWasPlaying: (enabled) => set({ slideshowHoldWasPlaying: Boolean(enabled) }),
 
   /** Sets global upload state for viewer overlay */
   setUploadState: ({ isUploading, uploadProgress }) => set({
@@ -708,18 +712,6 @@ export const useStore = create(
     persistUiPrefs({ ...get(), disableTransparentUi: Boolean(disableTransparentUi) });
   },
 
-  /** Enables/disables stochastic rendering in Spark */
-  setDebugStochasticRendering: (enabled) => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        window.localStorage.setItem(DEBUG_STOCHASTIC_KEY, String(enabled));
-      } catch (err) {
-        console.warn('[Store] Failed to persist debugStochasticRendering', err);
-      }
-    }
-    set({ debugStochasticRendering: enabled });
-  },
-
   /** Enables/disables FPS limiting in the render loop */
   setDebugFpsLimitEnabled: (enabled) => {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -754,11 +746,10 @@ export const useStore = create(
       }
     }
     if (QUALITY_PRESETS[preset]) {
-      const { stdDev, stochastic, fpsLimit } = QUALITY_PRESETS[preset];
+      const { stdDev, fpsLimit } = QUALITY_PRESETS[preset];
       if (typeof window !== 'undefined' && window.localStorage) {
         try {
           window.localStorage.setItem(DEBUG_SPARK_STDDEV_KEY, String(stdDev));
-          window.localStorage.setItem(DEBUG_STOCHASTIC_KEY, String(stochastic));
           window.localStorage.setItem(DEBUG_FPS_LIMIT_KEY, String(fpsLimit));
         } catch (err) {
           console.warn('[Store] Failed to persist quality preset values', err);
@@ -767,7 +758,6 @@ export const useStore = create(
       set({
         qualityPreset: preset,
         debugSparkMaxStdDev: stdDev,
-        debugStochasticRendering: stochastic,
         debugFpsLimitEnabled: fpsLimit,
       });
       return;

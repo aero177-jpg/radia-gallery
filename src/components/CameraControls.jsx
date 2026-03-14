@@ -1189,7 +1189,7 @@ function CameraControls() {
               <option value="high">High</option>
               <option value="default">Default</option>
               <option value="performance">Performance</option>
-              <option value="experimental">Experimental</option>
+              {/* <option value="experimental">Experimental</option> */}
               {qualityPreset === 'debug-custom' && (
                 <option value="debug-custom">Debug custom</option>
               )}
