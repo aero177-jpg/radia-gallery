@@ -655,6 +655,7 @@ const setDebugForceZoomOut = (enabled) => {
  * @param {Object} options - Load options
  * @param {string} options.slideDirection - 'next' or 'prev' for slide transition
  * @param {Object} [options.outgoingCustomAnimationSettings] - Optional per-file overrides for the outgoing/current slide
+ * @param {boolean} [options.replayEntranceOnly] - Skip the outgoing phase and replay only the entrance animation
  */
 export const loadSplatFile = async (assetOrFile, options = {}) => {
   const viewerEl = document.getElementById('viewer');
@@ -681,7 +682,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   cleanupSlideTransitionState();
 
   const store = getStoreState();
-  const { slideDirection, outgoingCustomAnimationSettings, slideshowTransitionId } = options;
+  const { slideDirection, outgoingCustomAnimationSettings, slideshowTransitionId, replayEntranceOnly = false } = options;
   const shouldPauseTransitionLanding = () => slideshowTransitionId != null
     && shouldPauseSlideshowTransitionOnCommit(slideshowTransitionId);
   const forceFadeForNonSequential = !slideDirection;
@@ -725,40 +726,54 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
   let preloadedEntry = null;
   if (shouldRunTransition) {
-    const slideOutAmount = resolveSlideAmountWithPerFileRange(
-      outgoingSlideMode,
-      'transition',
-      outgoingTransitionRange,
-      'out',
-    );
-    const slideOutOpts = {
-      mode: outgoingSlideMode,
-      preset: 'transition',
-      amount: slideOutAmount,
-    };
-    if (slideshowTimingExt.extensionMs > 0) {
-      const base = resolveSlideOutOptions(outgoingSlideMode, { preset: 'transition' });
-      const extDuration = base.duration + slideshowTimingExt.extensionMs;
-      slideOutOpts.duration = extDuration;
-      slideOutOpts.ease = createExtendedEaseIn(base.duration, extDuration);
-      // Push fadeDelay so fade aligns with the rush phase, not the drift.
-      slideOutOpts.fadeDelay = Math.min(0.85, 1 - (base.duration * 0.35) / extDuration);
-    }
-    const slideOutPromise = slideOutAnimation(transitionDirection, slideOutOpts);
     const prepPromise = entryPromise.catch((err) => {
       console.warn('Failed to preload during transition:', err);
       return null;
     });
-    const [, entry] = await Promise.all([slideOutPromise, prepPromise]);
 
-    // Bail out if a newer load superseded this one while we were transitioning
-    if (loadGeneration !== thisGeneration) return;
+    if (replayEntranceOnly) {
+      const entry = await prepPromise;
 
-    if (entry) {
-      applyIntrinsicsAspect(entry);
-      aspectApplied = true;
+      // Bail out if a newer load superseded this one while we were preloading
+      if (loadGeneration !== thisGeneration) return;
+
+      if (entry) {
+        applyIntrinsicsAspect(entry);
+        aspectApplied = true;
+      }
+      preloadedEntry = entry;
+    } else {
+      const slideOutAmount = resolveSlideAmountWithPerFileRange(
+        outgoingSlideMode,
+        'transition',
+        outgoingTransitionRange,
+        'out',
+      );
+      const slideOutOpts = {
+        mode: outgoingSlideMode,
+        preset: 'transition',
+        amount: slideOutAmount,
+      };
+      if (slideshowTimingExt.extensionMs > 0) {
+        const base = resolveSlideOutOptions(outgoingSlideMode, { preset: 'transition' });
+        const extDuration = base.duration + slideshowTimingExt.extensionMs;
+        slideOutOpts.duration = extDuration;
+        slideOutOpts.ease = createExtendedEaseIn(base.duration, extDuration);
+        // Push fadeDelay so fade aligns with the rush phase, not the drift.
+        slideOutOpts.fadeDelay = Math.min(0.85, 1 - (base.duration * 0.35) / extDuration);
+      }
+      const slideOutPromise = slideOutAnimation(transitionDirection, slideOutOpts);
+      const [, entry] = await Promise.all([slideOutPromise, prepPromise]);
+
+      // Bail out if a newer load superseded this one while we were transitioning
+      if (loadGeneration !== thisGeneration) return;
+
+      if (entry) {
+        applyIntrinsicsAspect(entry);
+        aspectApplied = true;
+      }
+      preloadedEntry = entry;
     }
-    preloadedEntry = entry;
   }
   
   store.setFileInfo({ name: asset.name });
@@ -1950,6 +1965,49 @@ export const loadAssetByIndex = async (index) => {
   }
 };
 
+export const replayCurrentAsset = async (options = {}) => {
+  if (isNavigationLocked) return false;
+
+  const index = getCurrentAssetIndex();
+  if (index < 0) return false;
+
+  const asset = getAssetByIndex(index);
+  if (!asset) return false;
+
+  const {
+    slideDirection = 'next',
+    entranceOnly = false,
+    skipTimerReset = false,
+  } = options;
+
+  isNavigationLocked = true;
+
+  const wasImmersive = isImmersiveModeActive();
+  if (wasImmersive) {
+    pauseImmersiveMode();
+  }
+
+  try {
+    const store = getStoreState();
+    if (!skipTimerReset && store.slideshowPlaying) {
+      resetSlideshowTimer();
+    }
+
+    const outgoingCustomAnimationSettings = store.fileCustomAnimation;
+    await loadSplatFile(asset, {
+      slideDirection,
+      outgoingCustomAnimationSettings,
+      replayEntranceOnly: entranceOnly,
+    });
+    return true;
+  } finally {
+    isNavigationLocked = false;
+    if (wasImmersive) {
+      resumeImmersiveMode();
+    }
+  }
+};
+
 /**
  * Loads assets from a connected storage source.
  * Replaces current asset list with assets from the source.
@@ -1983,6 +2041,9 @@ export const loadFromStorageSource = async (source, options = {}) => {
   const store = getStoreState();
   const { preferredIndex } = options || {};
 
+  // Mark the target collection immediately so the UI can transition out of
+  // the landing state even while asset discovery is still in flight.
+  store.setActiveSourceId(source.id);
   store.setIsLoading(true);
 
   try {
@@ -1995,9 +2056,6 @@ export const loadFromStorageSource = async (source, options = {}) => {
     // Get assets from source
     const adaptedAssets = await loadSourceAssets(source);
 
-    // Record the active collection for UI highlighting
-    store.setActiveSourceId(source.id);
-    
     if (adaptedAssets.length === 0) {
       store.setStatus(`No supported assets found in ${source.name}`);
       store.setAssets([]);
@@ -2103,6 +2161,18 @@ export const loadFromStorageSource = async (source, options = {}) => {
  */
 export const loadNextAsset = async (options = {}) => {
   if (!hasMultipleAssets()) return;
+  const holdEnabled = getStoreState().slideshowHold === true;
+  if (holdEnabled) {
+    const replayed = await replayCurrentAsset({
+      slideDirection: 'next',
+      entranceOnly: !getStoreState().slideshowPlaying,
+      skipTimerReset: true,
+    });
+    if (replayed && getStoreState().slideshowPlaying) {
+      resetSlideshowTimer();
+    }
+    return;
+  }
   if (isNavigationLocked) return;
   
   isNavigationLocked = true;
@@ -2162,6 +2232,18 @@ export const loadNextAsset = async (options = {}) => {
  */
 export const loadPrevAsset = async (options = {}) => {
   if (!hasMultipleAssets()) return;
+  const holdEnabled = getStoreState().slideshowHold === true;
+  if (holdEnabled) {
+    const replayed = await replayCurrentAsset({
+      slideDirection: 'prev',
+      entranceOnly: !getStoreState().slideshowPlaying,
+      skipTimerReset: true,
+    });
+    if (replayed && getStoreState().slideshowPlaying) {
+      resetSlideshowTimer();
+    }
+    return;
+  }
   if (isNavigationLocked) return;
   
   isNavigationLocked = true;

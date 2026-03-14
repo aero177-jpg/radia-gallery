@@ -1984,7 +1984,14 @@ input[type="checkbox"]:disabled:checked {
 .replay-btn:active {
   transform: scale(0.95);
 }
-
+.replay-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+.animate-opacity{
+  transition: opacity 0.1s ease-in;
+}
 /* Slideshow buttons */
 .slideshow-btn {
   background: rgba(255, 255, 255, 0.05);

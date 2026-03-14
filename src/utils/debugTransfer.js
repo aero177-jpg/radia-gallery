@@ -51,7 +51,6 @@ const isSupportedTransferApp = (value) =>
   SUPPORTED_TRANSFER_APPS.has(String(value || '').trim().toLowerCase());
 
 const QUALITY_PRESET_KEY = 'qualityPreset';
-const DEBUG_STOCHASTIC_KEY = 'debugStochasticRendering';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
 const UI_PREFERENCES_KEY = 'ui-preferences';
@@ -770,7 +769,6 @@ const countSourcesByType = (sources = []) => {
 const countViewerPreferenceKeys = () => {
   return [
     QUALITY_PRESET_KEY,
-    DEBUG_STOCHASTIC_KEY,
     DEBUG_SPARK_STDDEV_KEY,
     DEBUG_FPS_LIMIT_KEY,
     UI_PREFERENCES_KEY,
@@ -922,7 +920,6 @@ export const clearSelectedLocalData = async (options = {}) => {
 
   if (options.clearViewerPrefs) {
     summary.localStorageEntriesCleared += clearLocalStorageKey(QUALITY_PRESET_KEY);
-    summary.localStorageEntriesCleared += clearLocalStorageKey(DEBUG_STOCHASTIC_KEY);
     summary.localStorageEntriesCleared += clearLocalStorageKey(DEBUG_SPARK_STDDEV_KEY);
     summary.localStorageEntriesCleared += clearLocalStorageKey(DEBUG_FPS_LIMIT_KEY);
     summary.localStorageEntriesCleared += clearLocalStorageKey(UI_PREFERENCES_KEY);

@@ -176,11 +176,14 @@ export const useCollectionRouting = ({
       && r2Settings?.bucket === matchedSource?.config?.config?.bucket;
 
     try {
+      const state = useStore.getState();
       routeSyncInFlightRef.current = true;
       setLandingVisible(false);
+      state.setIsLoading(true);
+      state.setActiveSourceId(matchedSource.id);
+      markInitialRouteResolved();
 
       if (isR2Locked) {
-        const state = useStore.getState();
         state.setAssets([]);
         state.setCurrentAssetIndex(-1);
         state.setActiveSourceId(matchedSource.id);

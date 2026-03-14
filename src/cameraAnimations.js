@@ -35,6 +35,7 @@ import {
   clamp01,
   isContinuousMode,
   DEFAULT_CONFIG,
+  reduceDollyZoomStartDelta,
   resolveSlideOutOptions,
   resolveSlideInOptions,
 } from "./slideConfig.js";
@@ -535,12 +536,13 @@ export const slideInAnimation = (direction, options = {}) => {
     let dollyBaseFov, dollyBaseDistance, dollyBaseDirection, dollyBaseTan, dollyStartFov, dollyEndFov;
     if (mode === 'dolly-zoom') {
       const { startDelta } = getDollyZoomDeltas();
+      const adjustedStartDelta = reduceDollyZoomStartDelta(startDelta);
       dollyBaseFov = camera.fov;
       dollyBaseDistance = camera.position.distanceTo(controls.target);
       dollyBaseDirection = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
       dollyBaseTan = Math.tan(THREE.MathUtils.degToRad(dollyBaseFov / 2));
       // Slide-in goes from startDelta offset back to base FOV
-      dollyStartFov = THREE.MathUtils.clamp(dollyBaseFov + startDelta, 20, 120);
+      dollyStartFov = THREE.MathUtils.clamp(dollyBaseFov + adjustedStartDelta, 20, 120);
       dollyEndFov = dollyBaseFov;
       // Apply start FOV + compensated position so forceRenderNow shows the correct frame
       const startTan = Math.tan(THREE.MathUtils.degToRad(dollyStartFov / 2));

@@ -7,6 +7,7 @@ import { useCallback } from 'preact/hooks';
 import { useStore } from '../store';
 import { saveCustomAnimationSettings, saveViewCustomAnimationSettings } from '../fileStorage';
 import { updateCustomAnimationInCache, clearCustomAnimationInCache, updateViewCustomAnimationInCache, clearViewCustomAnimationInCache } from '../splatManager';
+import { setLoopSceneEnabled } from '../slideshowController';
 import Modal from './Modal';
 
 const SLIDE_MODE_OPTIONS = [
@@ -73,6 +74,7 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
   const continuousMotionSize = useStore((state) => state.continuousMotionSize);
   const continuousMotionDuration = useStore((state) => state.continuousMotionDuration);
   const slideshowContinuousMode = useStore((state) => state.slideshowContinuousMode);
+  const slideshowHold = useStore((state) => state.slideshowHold);
   const slideshowDuration = useStore((state) => state.slideshowDuration);
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
@@ -173,6 +175,7 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
     fileCustomAnimation?.slideType && fileCustomAnimation.slideType !== 'default'
       ? fileCustomAnimation.slideType
       : slideMode;
+  const hasMultipleAssets = (assets?.length ?? 0) > 1;
   const hasFileSlideshowOverride = Boolean(
     (fileCustomAnimation?.slideType && fileCustomAnimation.slideType !== 'default')
     || (fileCustomAnimation?.transitionRange && fileCustomAnimation.transitionRange !== 'default')
@@ -180,16 +183,18 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
     || fileCustomAnimation?.dollyZoom
   );
 
+  const handleLoopSceneToggle = useCallback((e) => {
+    setLoopSceneEnabled(e.target.checked);
+  }, []);
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth={380} >
-       <h3 style={{marginBottom: "0px"}}>Slideshow Options</h3>
+      <div style={{ marginBottom: "5px" }}>
+        <h3 style={{ marginBottom: '0px' }}>Slideshow Options</h3>
+        <span class="tier-badge animate-opacity" style={{marginRight: "24px", opacity: hasFileSlideshowOverride ? 1 : 0 }}>Override Active</span>
+      </div>
       <div class="settings-group" style={{ padding: '6px 2px' }}>
-        <div class="group-content" style={{ display: 'flex', marginTop: '14px', flexDirection: 'column', gap: '12px' }}>
-          {hasFileSlideshowOverride && (
-            <div class="control-row" style={{ justifyContent: 'flex-end', paddingTop: '0', paddingBottom: '0' }}>
-              <span class="tier-badge">Override Active</span>
-            </div>
-          )}
+        <div class="group-content" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
           <div class="control-row select-row">
             <span class="control-label">Slide</span>
@@ -260,6 +265,18 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
            <div class="settings-divider">
           <span>Custom transitions</span>
         </div>
+          <div class="control-row animate-toggle-row">
+            <span class="control-label">Loop scene</span>
+            <label class="switch">
+              <input
+                type="checkbox"
+                checked={slideshowHold}
+                onChange={handleLoopSceneToggle}
+                disabled={!hasMultipleAssets}
+              />
+              <span class="switch-track" aria-hidden="true" />
+            </label>
+          </div>
           <div class="control-row select-row">
             <span class="control-label">Slide</span>
             <select value={fileCustomAnimation?.slideType ?? 'default'} onChange={handleFileSlideTypeChange}>

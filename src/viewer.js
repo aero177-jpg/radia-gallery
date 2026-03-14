@@ -199,12 +199,6 @@ export const setStereoOverlap = (fraction) => {
   requestRender();
 };
 
-const applyStochasticRendering = (enabled) => {
-  if (!spark?.defaultView) return;
-  spark.defaultView.stochastic = Boolean(enabled);
-  requestRender();
-};
-
 const applySparkMaxStdDev = (value) => {
   if (!spark) return;
   const next = Math.max(0.5, Math.min(8, Number(value)));
@@ -446,12 +440,6 @@ export const initViewer = (viewerEl) => {
 
     applyBlur(useStore.getState().bgBlur);
     useStore.subscribe((s) => s.bgBlur, applyBlur);
-  }).catch(() => {});
-
-  // Subscribe to stochastic rendering debug toggle
-  import('./store.js').then(({ useStore }) => {
-    applyStochasticRendering(useStore.getState().debugStochasticRendering);
-    useStore.subscribe((s) => s.debugStochasticRendering, applyStochasticRendering);
   }).catch(() => {});
 
   // Subscribe to Spark maxStdDev slider

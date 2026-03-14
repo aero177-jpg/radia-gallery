@@ -3,7 +3,7 @@
  * Hosts FPS overlay toggle and viewer debug controls.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { useStore } from '../store';
@@ -36,8 +36,6 @@ function DebugSettings() {
   const setBgBlur = useStore((state) => state.setBgBlur);
   const disableTransparentUi = useStore((state) => state.disableTransparentUi);
   const setDisableTransparentUi = useStore((state) => state.setDisableTransparentUi);
-  const debugStochasticRendering = useStore((state) => state.debugStochasticRendering);
-  const setDebugStochasticRendering = useStore((state) => state.setDebugStochasticRendering);
   const debugFpsLimitEnabled = useStore((state) => state.debugFpsLimitEnabled);
   const setDebugFpsLimitEnabled = useStore((state) => state.setDebugFpsLimitEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
@@ -94,13 +92,6 @@ function DebugSettings() {
     const el = document.getElementById('fps-counter');
     if (el) el.style.display = enabled ? 'block' : 'none';
   }, [setShowFps]);
-
-  /** Toggle stochastic rendering */
-  const handleStochasticToggle = useCallback((e) => {
-    const enabled = Boolean(e.target.checked);
-    setQualityPreset('debug-custom');
-    setDebugStochasticRendering(enabled);
-  }, [setDebugStochasticRendering, setQualityPreset]);
 
   /** Toggle FPS limiting */
   const handleFpsLimitToggle = useCallback((e) => {
@@ -647,18 +638,6 @@ function DebugSettings() {
             {debugOverlayButtonLabel}
           </button>
         </div> */}
-
-        <div class="control-row">
-          <span class="control-label">Stochastic rendering</span>
-          <label class="switch">
-            <input
-              type="checkbox"
-              checked={debugStochasticRendering}
-              onChange={handleStochasticToggle}
-            />
-            <span class="switch-track" aria-hidden="true" />
-          </label>
-        </div>
 
         <div class="control-row">
           <span class="control-label">Limit FPS (60)</span>

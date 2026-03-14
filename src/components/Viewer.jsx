@@ -167,8 +167,8 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   const [hasMesh, setHasMesh] = useState(false);
   const hasMeshRef = useRef(false);
   const [hideForInitialCollectionLoad, setHideForInitialCollectionLoad] = useState(startEmptyOnInitialCollectionRoute);
-  const [showLargeFileNotice, setShowLargeFileNotice] = useState(false);
-  const largeFileTimeoutRef = useRef(null);
+  const [showSlowLoadingNotice, setShowSlowLoadingNotice] = useState(false);
+  const slowLoadingTimeoutRef = useRef(null);
   const [currentMeshAssetId, setCurrentMeshAssetId] = useState(null);
   const lastTapTimeRef = useRef(0);
   const cursorIdleTimeoutRef = useRef(null);
@@ -258,20 +258,25 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   }, [metadataMissing, setViewerControlsDimmed]);
 
   const currentAsset = currentAssetIndex >= 0 ? assets[currentAssetIndex] : null;
-  const currentAssetSize = currentAsset?.file?.size ?? currentAsset?.size ?? 0;
 
   useEffect(() => {
     if (!hideForInitialCollectionLoad) return;
-    // Reveal when: empty state (error/no assets), or loading finishes with assets
-    const shouldRevealViewer = showEmptyState || (!isLoading && hasMesh);
+    const hasPendingCollectionLoad = Boolean(activeSourceId) && assets.length === 0;
+    // Reveal when a collection is clearly loading, when an empty state is known,
+    // or when the first mesh has finished loading.
+    const shouldRevealViewer = hasPendingCollectionLoad || showEmptyState || (!isLoading && hasMesh);
     if (shouldRevealViewer) {
+      if (hasPendingCollectionLoad || showEmptyState) {
+        setHideForInitialCollectionLoad(false);
+        return;
+      }
       // Delay reveal so the viewer's slide-in CSS transition (0.6s + 0.2s delay)
       // and renderer warmup complete while the wrapper is still invisible —
       // avoids a flash of partially-rendered content on direct /collection URL loads.
       const timer = setTimeout(() => setHideForInitialCollectionLoad(false), 650);
       return () => clearTimeout(timer);
     }
-  }, [hideForInitialCollectionLoad, showEmptyState, hasMesh, isLoading, assets.length]);
+  }, [hideForInitialCollectionLoad, activeSourceId, showEmptyState, hasMesh, isLoading, assets.length]);
 
   useEffect(() => {
     if (!showEmptyState) return;
@@ -310,39 +315,43 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   }, []);
 
   useEffect(() => {
-    if (largeFileTimeoutRef.current) {
-      clearTimeout(largeFileTimeoutRef.current);
-      largeFileTimeoutRef.current = null;
+    if (slowLoadingTimeoutRef.current) {
+      clearTimeout(slowLoadingTimeoutRef.current);
+      slowLoadingTimeoutRef.current = null;
     }
 
-    setShowLargeFileNotice(false);
+    setShowSlowLoadingNotice(false);
 
-    const isLarge = Number.isFinite(currentAssetSize) && currentAssetSize >= 100 * 1024 * 1024;
-    // The mesh's userData.assetId is the cache key (baseAssetId), so for
-    // view instances we must also compare against cacheKey/baseAssetId — not
-    // just the instance's unique id — to avoid a false "Loading..." notice
-    // when switching between views of an already-loaded splat.
-    const meshId = currentMeshAssetId;
-    const assetId = currentAsset?.id;
-    const baseMeshId = currentAsset?.cacheKey || currentAsset?.baseAssetId;
-    const isCurrentMeshActive = assetId && (meshId === assetId || meshId === baseMeshId);
-    if (!isLarge || isCurrentMeshActive) return;
+    const targetMeshId = currentAsset?.cacheKey || currentAsset?.baseAssetId || currentAsset?.id || null;
+    const waitingForFirstAsset = Boolean(activeSourceId) && assets.length === 0;
+    const waitingForTargetAsset = Boolean(targetMeshId) && currentMeshAssetId !== targetMeshId;
+    const shouldTrackSlowLoading = !showEmptyState
+      && !requiresR2Unlock
+      && (isLoading || waitingForFirstAsset || waitingForTargetAsset);
 
-    largeFileTimeoutRef.current = setTimeout(() => {
-      // Re-read current values from the asset at timeout time
-      const stillActive = assetId && meshId !== assetId && meshId !== baseMeshId;
-      if (stillActive) {
-        setShowLargeFileNotice(true);
+    if (!shouldTrackSlowLoading) return;
+
+    slowLoadingTimeoutRef.current = setTimeout(() => {
+      const nextState = useStore.getState();
+      const nextAsset = nextState.currentAssetIndex >= 0
+        ? nextState.assets[nextState.currentAssetIndex]
+        : null;
+      const nextTargetMeshId = nextAsset?.cacheKey || nextAsset?.baseAssetId || nextAsset?.id || null;
+      const activeMeshId = currentMesh?.userData?.assetId || null;
+      const stillWaitingForFirstAsset = Boolean(nextState.activeSourceId) && (nextState.assets?.length ?? 0) === 0;
+      const stillWaitingForTargetAsset = Boolean(nextTargetMeshId) && activeMeshId !== nextTargetMeshId;
+      if (nextState.isLoading || stillWaitingForFirstAsset || stillWaitingForTargetAsset) {
+        setShowSlowLoadingNotice(true);
       }
     }, 2000);
 
     return () => {
-      if (largeFileTimeoutRef.current) {
-        clearTimeout(largeFileTimeoutRef.current);
-        largeFileTimeoutRef.current = null;
+      if (slowLoadingTimeoutRef.current) {
+        clearTimeout(slowLoadingTimeoutRef.current);
+        slowLoadingTimeoutRef.current = null;
       }
     };
-  }, [currentAssetSize, currentAsset?.id, currentMeshAssetId]);
+  }, [activeSourceId, assets.length, currentAsset?.id, currentAsset?.cacheKey, currentAsset?.baseAssetId, currentMeshAssetId, isLoading, showEmptyState, requiresR2Unlock]);
 
 
   /**
@@ -852,10 +861,10 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
             </button>
           </div>
         )}
-        {showLargeFileNotice && (
+        {showSlowLoadingNotice && (
             <div className="metadata-warning" style={{height: "40px", padding: "8px 14px"}}>
               <span className="large-file-spinner" aria-hidden="true" />
-              <span>Loading file...</span>
+              <span>Loading...</span>
           </div>
         )}
       </div>

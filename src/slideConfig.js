@@ -92,6 +92,15 @@ export const easingFunctions = {
 
 export const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
+// Pull dolly-zoom starts partway back toward the baseline FOV so the first
+// visible frame does not expose as much edge artifacting.
+const DOLLY_ZOOM_START_DELTA_SCALE = 0.6;
+
+export const reduceDollyZoomStartDelta = (delta) => {
+  if (!Number.isFinite(delta)) return 0;
+  return delta * DOLLY_ZOOM_START_DELTA_SCALE;
+};
+
 // ============================================================================
 // Continuous-mode helpers (shared by continuousAnimations.js)
 // ============================================================================
