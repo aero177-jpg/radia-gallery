@@ -7,7 +7,6 @@ import { getSource, isSourceAsset, loadAssetFile } from '../storage/index.js';
 import { zipSync } from 'fflate';
 import TransferDataModal from './TransferDataModal.jsx';
 import ExportChoiceModal from './ExportChoiceModal.jsx';
-import CreateEmbedUrlModal from './CreateEmbedUrlModal.jsx';
 
 function SharingSettings() {
   const assets = useStore((state) => state.assets);
@@ -21,7 +20,6 @@ function SharingSettings() {
   const [expanded, setExpanded] = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [embedModalOpen, setEmbedModalOpen] = useState(false);
 
   const currentAsset = assets[currentAssetIndex] || null;
   const currentAssetSize = currentAsset?.file?.size ?? currentAsset?.size ?? null;
@@ -175,7 +173,7 @@ function SharingSettings() {
               aria-label="Open sharing guide"
               onClick={(e) => {
                 e.stopPropagation();
-                openControlsModalWithSections(['sharing.transfer-bundles', 'sharing.embed-links']);
+                openControlsModalWithSections(['sharing.transfer-bundles']);
               }}
               style={{ width: '28px', height: '22px', fontSize: '11px' }}
             >
@@ -207,28 +205,12 @@ function SharingSettings() {
               Open...
             </button>
           </div>
-
-          <div class="control-row">
-            <span class="control-label">Generate embed-URL</span>
-            <button
-              type="button"
-              class="secondary"
-              onClick={() => setEmbedModalOpen(true)}
-            >
-              Open...
-            </button>
-          </div>
         </div>
       </div>
 
       <TransferDataModal
         isOpen={transferModalOpen}
         onClose={() => setTransferModalOpen(false)}
-        addLog={addLog}
-      />
-      <CreateEmbedUrlModal
-        isOpen={embedModalOpen}
-        onClose={() => setEmbedModalOpen(false)}
         addLog={addLog}
       />
       <ExportChoiceModal

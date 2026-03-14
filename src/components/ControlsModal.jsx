@@ -35,7 +35,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
   ];
   const controlsKeys = ['controls.desktop', 'controls.mobile'];
   const connectionsKeys = ['connections.storage', 'connections.cloud-gpu'];
-  const sharingKeys = ['sharing.transfer-bundles', 'sharing.embed-links'];
+  const sharingKeys = ['sharing.transfer-bundles'];
   const troubleshootingKeys = [
     'troubleshooting.render',
     'troubleshooting.collections',
@@ -207,14 +207,6 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li><strong>ZIP export:</strong> Export ZIP when you also want bundled previews for faster collection loading after import. ZIP exports can be imported from a public URL or by pasting/dropping the file directly into the import dialog.</li>
                 <li><strong>Encrypted keys:</strong> If stored keys were encrypted when exported, they stay encrypted in the transfer bundle and will still require the same password after import on the new device.</li>
                 <li><strong>Shareable config links:</strong> After uploading an exported JSON or ZIP to a public direct URL, use the generated config URL in the transfer dialog. That link adds your import URL to the viewer, so the recipient can open the app and import the shared setup from that hosted file.</li>
-              </ul>
-            </Section>
-
-            <Section title="Embeddable link generator" isOpen={isSubsectionOpen('sharing.embed-links')}>
-              <ul>
-                <li><strong>What it does:</strong> The embed generator creates a read-only, stripped-down version of the app for sharing a collection without the full editing and management UI.</li>
-                <li><strong>How it loads:</strong> The generated embed reads from a hosted JSON or ZIP config, so you can point it at the same exported transfer data you are sharing publicly.</li>
-                <li><strong>Best use:</strong> Use embeds when you want a cleaner viewer experience for websites, portfolios, or simple sharing, while keeping the full app available separately for editing and imports.</li>
               </ul>
             </Section>
             <div class="controls-section-divider" />
