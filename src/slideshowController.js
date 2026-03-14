@@ -7,7 +7,7 @@
  */
 
 import { useStore } from "./store.js";
-import { loadNextAsset, buildContinuousHandoff, getBaseAssetId, cancelActiveSlideshowTransitionEffects, replayCurrentAsset } from "./fileLoader.js";
+import { loadNextAsset, buildContinuousHandoff, getBaseAssetId, cancelActiveSlideshowTransitionEffects, replayCurrentAsset, SAME_BASE_GLIDE_MS } from "./fileLoader.js";
 import {
   hasMultipleAssets,
   getCurrentAssetIndex,
@@ -437,6 +437,19 @@ const resolveContinuousSlideMode = (store) => {
       : null;
 };
 
+const resolveNonContinuousSlideMode = (store) => {
+  const fileSlideType = store.fileCustomAnimation?.slideType;
+  return fileSlideType && fileSlideType !== 'default'
+    ? fileSlideType
+    : (store.slideMode ?? 'horizontal');
+};
+
+const getSameBaseHoldCompensationMs = (store) => {
+  const baseSlideMode = resolveNonContinuousSlideMode(store);
+  const standardSlideInMs = resolveSlideInOptions(baseSlideMode, { preset: 'transition' }).duration ?? 0;
+  return Math.max(0, SAME_BASE_GLIDE_MS - standardSlideInMs);
+};
+
 /**
  * Determines the current continuous mode (if any) and starts the
  * appropriate continuous animation on the current asset.
@@ -459,21 +472,26 @@ const startContinuousForCurrentMode = () => {
  * For non-continuous mode, the hold time is reduced by the timing extension
  * that was stolen to stretch slide-in/slide-out animations in fileLoader.
  */
-const scheduleNextAdvance = () => {
+const scheduleNextAdvance = (options = {}) => {
   if (!isPlaying) return;
 
   const store = getStoreState();
   const isContinuous = store.slideshowContinuousMode && store.slideMode !== 'fade';
   const continuousDuration = store.continuousMotionDuration ?? 10;
   const slideInOffsetSec = isContinuous ? 2.5 : 0;
+  const sameBaseHoldCompensationMs = Math.max(0, options.sameBaseHoldCompensationMs ?? 0);
 
   let holdMs;
   if (isContinuous) {
     holdMs = Math.max(0, continuousDuration - slideInOffsetSec) * 1000;
   } else {
     const rawHold = store.slideshowDuration ?? 3;
-    const { adjustedHoldMs } = computeSlideshowTimingExtension(rawHold);
-    holdMs = adjustedHoldMs;
+    if (sameBaseHoldCompensationMs > 0) {
+      holdMs = Math.max(0, (rawHold * 1000) - sameBaseHoldCompensationMs);
+    } else {
+      const { adjustedHoldMs } = computeSlideshowTimingExtension(rawHold);
+      holdMs = adjustedHoldMs;
+    }
   }
 
   scheduleNextAdvanceMs(holdMs);
@@ -578,10 +596,14 @@ const advanceAndSchedule = async () => {
     transitionId = startSlideshowTransition();
     activeSlideshowTransitionId = transitionId;
 
-    await loadNextAsset({ skipTimerReset: true, slideshowTransitionId: transitionId });
+    const navigationResult = await loadNextAsset({ skipTimerReset: true, slideshowTransitionId: transitionId });
 
     if (isPlaying) {
-      scheduleNextAdvance();
+      scheduleNextAdvance({
+        sameBaseHoldCompensationMs: navigationResult?.reusedSameBase === true
+          ? getSameBaseHoldCompensationMs(store)
+          : 0,
+      });
     }
   } catch (err) {
     console.warn('Slideshow advance failed:', err);

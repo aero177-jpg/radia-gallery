@@ -1661,7 +1661,7 @@ export const handleAddFiles = async (files, options = {}) => {
 };
 
 /** Duration (ms) for the smooth camera glide between views on the same splat */
-const SAME_BASE_GLIDE_MS = 2000;
+export const SAME_BASE_GLIDE_MS = 2000;
 
 const applyInstantViewInstanceAspectCutAndReset = (stage = 'view-instance') => {
   const viewerEl = document.getElementById('viewer');
@@ -2160,7 +2160,7 @@ export const loadFromStorageSource = async (source, options = {}) => {
  *   (used by slideshowController which manages its own scheduling).
  */
 export const loadNextAsset = async (options = {}) => {
-  if (!hasMultipleAssets()) return;
+  if (!hasMultipleAssets()) return { advanced: false, reusedSameBase: false };
   const holdEnabled = getStoreState().slideshowHold === true;
   if (holdEnabled) {
     const replayed = await replayCurrentAsset({
@@ -2171,9 +2171,9 @@ export const loadNextAsset = async (options = {}) => {
     if (replayed && getStoreState().slideshowPlaying) {
       resetSlideshowTimer();
     }
-    return;
+    return { advanced: replayed === true, reusedSameBase: false };
   }
-  if (isNavigationLocked) return;
+  if (isNavigationLocked) return { advanced: false, reusedSameBase: false };
   
   isNavigationLocked = true;
   if (!options.skipTimerReset) {
@@ -2185,6 +2185,8 @@ export const loadNextAsset = async (options = {}) => {
   if (wasImmersive) {
     pauseImmersiveMode();
   }
+
+  let result = { advanced: false, reusedSameBase: false };
   
   try {
     const store = getStoreState();
@@ -2206,12 +2208,15 @@ export const loadNextAsset = async (options = {}) => {
           // slideshow is actively playing in continuous mode so the camera
           // doesn't freeze after a manual advance.
           restartContinuousIfPlaying();
+          result = { advanced: true, reusedSameBase: true };
         } else {
           await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings, slideshowTransitionId });
+          result = { advanced: true, reusedSameBase: false };
         }
       } else {
         if (isViewInstanceAsset(prevAsset)) fadeOutBackground();
         await loadSplatFile(asset, { slideDirection: 'next', outgoingCustomAnimationSettings, slideshowTransitionId });
+        result = { advanced: true, reusedSameBase: false };
       }
     }
   } finally {
@@ -2221,6 +2226,8 @@ export const loadNextAsset = async (options = {}) => {
       resumeImmersiveMode();
     }
   }
+
+  return result;
 };
 
 /**
@@ -2231,7 +2238,7 @@ export const loadNextAsset = async (options = {}) => {
  *   (used by slideshowController which manages its own scheduling).
  */
 export const loadPrevAsset = async (options = {}) => {
-  if (!hasMultipleAssets()) return;
+  if (!hasMultipleAssets()) return { advanced: false, reusedSameBase: false };
   const holdEnabled = getStoreState().slideshowHold === true;
   if (holdEnabled) {
     const replayed = await replayCurrentAsset({
@@ -2242,9 +2249,9 @@ export const loadPrevAsset = async (options = {}) => {
     if (replayed && getStoreState().slideshowPlaying) {
       resetSlideshowTimer();
     }
-    return;
+    return { advanced: replayed === true, reusedSameBase: false };
   }
-  if (isNavigationLocked) return;
+  if (isNavigationLocked) return { advanced: false, reusedSameBase: false };
   
   isNavigationLocked = true;
   if (!options.skipTimerReset) {
@@ -2256,6 +2263,8 @@ export const loadPrevAsset = async (options = {}) => {
   if (wasImmersive) {
     pauseImmersiveMode();
   }
+
+  let result = { advanced: false, reusedSameBase: false };
   
   try {
     const store = getStoreState();
@@ -2273,12 +2282,15 @@ export const loadPrevAsset = async (options = {}) => {
         const reused = await navigateWithinLoadedBaseAsset(asset, { slideDirection: 'prev' });
         if (reused) {
           restartContinuousIfPlaying();
+          result = { advanced: true, reusedSameBase: true };
         } else {
           await loadSplatFile(asset, { slideDirection: 'prev', outgoingCustomAnimationSettings });
+          result = { advanced: true, reusedSameBase: false };
         }
       } else {
         if (isViewInstanceAsset(prevLoadedAsset)) fadeOutBackground();
         await loadSplatFile(asset, { slideDirection: 'prev', outgoingCustomAnimationSettings });
+        result = { advanced: true, reusedSameBase: false };
       }
     }
   } finally {
@@ -2288,6 +2300,8 @@ export const loadPrevAsset = async (options = {}) => {
       resumeImmersiveMode();
     }
   }
+
+  return result;
 };
 
 /**
