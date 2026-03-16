@@ -81,20 +81,14 @@ function ExportChoiceModal({
 
   if (!isOpen) return null;
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (exportBusy) return;
     setExportError('');
     setExportBusy(true);
 
     const exportAction = mode === 'asset' ? onExportAsset : onExportCollection;
     try {
-      const result = exportAction?.();
-      if (result && typeof result.then === 'function') {
-        result.catch((err) => {
-          console.error('[ExportChoiceModal] Export failed after modal close', err);
-        });
-      }
-
+      await exportAction?.();
       handleClose();
     } catch (err) {
       setExportError(err?.message || 'Export failed');

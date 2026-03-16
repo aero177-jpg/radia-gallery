@@ -7,6 +7,7 @@ import { getSource, isSourceAsset, loadAssetFile } from '../storage/index.js';
 import { zipSync } from 'fflate';
 import TransferDataModal from './TransferDataModal.jsx';
 import ExportChoiceModal from './ExportChoiceModal.jsx';
+import { downloadBlobToDevice } from '../utils/downloadToDevice.js';
 
 function SharingSettings() {
   const assets = useStore((state) => state.assets);
@@ -58,17 +59,6 @@ function SharingSettings() {
       .slice(0, 120) || fallback;
   }, []);
 
-  const downloadBlob = useCallback((blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, []);
-
   const handleExportCurrentAsset = useCallback(async () => {
     if (!currentAsset) throw new Error('No current asset available');
     const file = currentAsset.file
@@ -76,9 +66,9 @@ function SharingSettings() {
       : (isSourceAsset(currentAsset) ? await loadAssetFile(currentAsset) : null);
 
     if (!file) throw new Error('Unable to load current asset file');
-    downloadBlob(file, file.name || sanitizeFileName(currentAsset.name || 'asset'));
+    await downloadBlobToDevice(file, file.name || sanitizeFileName(currentAsset.name || 'asset'));
     addLog(`[Export] Downloaded ${file.name || currentAsset.name || 'asset'}`);
-  }, [addLog, currentAsset, downloadBlob, sanitizeFileName]);
+  }, [addLog, currentAsset, sanitizeFileName]);
 
   const handleExportCollection = useCallback(async () => {
     if (!assets.length) throw new Error('No assets to export');
@@ -134,7 +124,7 @@ function SharingSettings() {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       const safeCollectionName = sanitizeFileName(collectionInfo.collectionName, 'collection');
       const filename = `${safeCollectionName}-${stamp}.zip`;
-      downloadBlob(blob, filename);
+      await downloadBlobToDevice(blob, filename);
       addLog(`[Export] Downloaded collection ZIP (${totalAssets} assets)`);
       exportSucceeded = true;
     } catch (err) {
@@ -154,7 +144,7 @@ function SharingSettings() {
         setUploadState({ isUploading: false, uploadProgress: null });
       }
     }
-  }, [addLog, assets, collectionInfo.collectionName, downloadBlob, sanitizeFileName, setUploadState]);
+  }, [addLog, assets, collectionInfo.collectionName, sanitizeFileName, setUploadState]);
 
   return (
     <>

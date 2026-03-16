@@ -52,7 +52,10 @@ function ViewerEmptyState({ source }) {
   const setCurrentAssetIndex = useStore((state) => state.setCurrentAssetIndex);
 
   const {
+    uploadInputRef,
+    uploadAccept,
     openUploadPicker,
+    handleUploadChange,
     uploadModal,
   } = useCollectionUploadFlow({
     source,
@@ -85,7 +88,15 @@ function ViewerEmptyState({ source }) {
 
   return (
     <div class="viewer-empty-state">
-     
+      <input
+        ref={uploadInputRef}
+        type="file"
+        {...(uploadAccept ? { accept: uploadAccept } : {})}
+        multiple
+        hidden
+        onChange={handleUploadChange}
+      />
+
       <div class="viewer-empty-card" style={{position: 'relative'}}>
          <button class="back-button viewer-empty-back" onClick={handleGoHome}>
         Back
