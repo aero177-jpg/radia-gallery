@@ -99,7 +99,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Settings" isOpen={isSettingsOpen}>
             <Section title="Main Settings" isOpen={isSubsectionOpen('settings.main-settings')}>
               <ul>
-                <li><strong>Quality:</strong> Adjusts model density. Experimental is a last resort option, not recommended. Further adjustments can be made in advanced settings.</li>
+                <li><strong>Quality:</strong> Adjusts model density. Further adjustments can be made in advanced settings.</li>
                 <li><strong>Orbit range:</strong> ml-sharp splats degrade at greater angles, this mitigates this and keeps focus on the target view. Auto adjusts in immersive mode on mobile. Disabled for models missing ml-sharp metadata.</li>
                 <li><strong>FOV:</strong> Auto adjust depending on camera metadata. Click the eye symbol to add a slider to the viewer for a dolly-zoom effect.</li>
                 <li><strong>Recenter:</strong> Bring camera back to starting point. Hold to reset viewer, for example due to render glitch.</li>

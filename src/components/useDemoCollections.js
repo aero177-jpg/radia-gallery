@@ -14,7 +14,7 @@ const DEMO_COLLECTION_OPTIONS = [
     title: 'Street & Travel',
     subtitle: 'Street photography demo collection',
     icon: faTreeCity,
-    url: 'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/demo_street/radia-transfer-demo-street-20260314.zip',
+    url: 'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/demo_street/radia-transfer-demo-street-travel-20260314.zip',
   },
   {
     key: 'plants-hiking',
@@ -35,7 +35,7 @@ const DEMO_COLLECTION_OPTIONS = [
     title: 'Game Captures',
     subtitle: 'Gameplay screenshot demo collection',
     icon: faGamepad,
-    url: 'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/demo_misc/radia-transfer-screenshots-20260314.zip',
+    url: 'https://pub-db16fc5228e844edb71f8282c2992658.r2.dev/demo_misc/radia-transfer-demo-game-captures-20260314.zip',
   },
   {
     key: 'multiview-model',
