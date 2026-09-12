@@ -615,17 +615,15 @@ const syncStoredAnnotation = (annotation, store) => {
 };
 
 const refreshSparkForCurrentView = (reason = 'unspecified') => {
-  if (!spark?.update) return;
+  if (!spark?.update || !camera) return;
 
   camera?.updateMatrix?.();
   camera?.updateMatrixWorld?.(true);
 
-  const viewToWorld = camera?.matrixWorld?.clone?.();
-  if (viewToWorld) {
-    spark.update({ scene, viewToWorld });
-  } else {
-    spark.update({ scene });
-  }
+  const update = spark.update({ scene, camera });
+  update?.catch?.((error) => {
+    console.warn(`[fileLoader] Spark update failed (${reason})`, error);
+  });
 };
 
 
@@ -880,7 +878,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       commitSlideshowTransition(slideshowTransitionId, { phase: 'asset-activated' });
     }
     viewerEl.classList.add("has-mesh");
-    spark?.update?.({ scene });
+    refreshSparkForCurrentView('asset activation');
 
     // Fire-and-forget neighbor preloading (don't block current asset)
     const neighborIds = new Set(neighborAssets.map((neighbor) => neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id));
@@ -891,7 +889,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       .filter((neighbor) => (neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id) !== activeCacheKey)
       .forEach((neighbor) => {
         ensureSplatEntry(neighbor)
-          .then(() => spark?.update?.({ scene }))
+          .then(() => refreshSparkForCurrentView('neighbor preload'))
           .catch((err) => {
             console.warn(`[SplatManager] Failed to preload ${neighbor.name}:`, err);
           });
@@ -919,16 +917,16 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     const modelOverrides = {
       applyCoordinateFlip: shouldApplyFlip,
       modelScale: selectedView?.model?.modelScale ?? 1,
+      baseOrientation: selectedView?.model?.baseOrientation,
     };
 
     if (shouldApplyFlip || hasCustomMetadata) {
       applyCustomModelTransform(entry.mesh, modelOverrides);
-      // Force Spark to regenerate its splat accumulator so the updated
-      // mesh transform (flip + scale) is baked into the packed data.
-      if (spark) spark.needsUpdate = true;
+      refreshSparkForCurrentView('model transform');
     }
 
     store.setCustomModelScale(modelOverrides.modelScale);
+  store.setCustomBaseOrientation(modelOverrides.baseOrientation ?? 'y-down');
 
     const metadataMissing = !cameraMetadata?.intrinsics && customViews.length === 0;
     store.setMetadataMissing(metadataMissing);
@@ -1559,7 +1557,7 @@ export const handleMultipleFiles = async (files) => {
   resetSplatManager();
   setCurrentMesh(null);
   hasLoadedFirstAsset = false; // Reset first load flag for new asset list
-  spark?.update?.({ scene });
+  refreshSparkForCurrentView('asset list reset');
 
   // Update store with assets
   store.setAssets(result.assets);
@@ -1750,8 +1748,10 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   applyCustomModelTransform(currentMesh, {
     applyCoordinateFlip: true,
     modelScale: selectedView?.model?.modelScale ?? 1,
+    baseOrientation: selectedView?.model?.baseOrientation,
   });
   store.setCustomModelScale(selectedView?.model?.modelScale ?? 1);
+  store.setCustomBaseOrientation(selectedView?.model?.baseOrientation ?? 'y-down');
 
   // Apply aspect ratio instantly – bypass the CSS transition so the viewer
   // snaps to the new size rather than animating width/height.
@@ -1871,9 +1871,11 @@ export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = 
         applyCustomModelTransform(currentMesh, {
           applyCoordinateFlip: true,
           modelScale: selectedView?.model?.modelScale ?? 1,
+          baseOrientation: selectedView?.model?.baseOrientation,
         });
       }
       applyStore.setCustomModelScale(selectedView?.model?.modelScale ?? 1);
+      applyStore.setCustomBaseOrientation(selectedView?.model?.baseOrientation ?? 'y-down');
 
       // Aspect ratio – instant, no CSS transition
       const customAspectRatio = selectedView?.view?.aspectRatio ?? null;
@@ -2063,7 +2065,7 @@ export const loadFromStorageSource = async (source, options = {}) => {
       resetSplatManager();
       setCurrentMesh(null);
       hasLoadedFirstAsset = false;
-      spark?.update?.({ scene });
+      refreshSparkForCurrentView('empty source reset');
       clearBackground();
       const pageEl = document.querySelector(".page");
       if (pageEl) {
@@ -2076,7 +2078,7 @@ export const loadFromStorageSource = async (source, options = {}) => {
     resetSplatManager();
     setCurrentMesh(null);
     hasLoadedFirstAsset = false; // Reset first load flag for new source
-    spark?.update?.({ scene });
+    refreshSparkForCurrentView('source reset');
     
     // Clear background
     clearBackground();

@@ -49,7 +49,7 @@ export default defineConfig({
           /\/embed\.html(?:\?.*)?$/,
         ],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff2}'],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
       }
     })
   ],

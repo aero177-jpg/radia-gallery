@@ -1,4 +1,4 @@
-import { VRButton, XrHands } from "@sparkjsdev/spark";
+import { SparkXr, XrHands } from "@sparkjsdev/spark";
 import {
   renderer,
   camera,
@@ -25,6 +25,7 @@ import { saveVrPivotLocalPoint } from "./fileStorage.js";
 import { updateVrPivotLocalPointInCache } from "./splatManager.js";
 
 let vrButton = null;
+let sparkXr = null;
 let xrHands = null;
 let xrHandMesh = null;
 let initialModelScale = null;
@@ -1032,7 +1033,7 @@ const attachSessionListeners = () => {
 export const initVrSupport = async (containerEl) => {
   const store = useStore.getState();
 
-  if (!renderer || vrButton) return vrButton;
+  if (!renderer || sparkXr) return vrButton;
 
   if (!vrSupportCheckPromise) {
     vrSupportCheckPromise = checkVrSupport();
@@ -1044,11 +1045,29 @@ export const initVrSupport = async (containerEl) => {
   }
 
   try {
-    vrButton = VRButton.createButton(renderer, {
-      optionalFeatures: ["hand-tracking"],
+    const supported = await new Promise((resolve) => {
+      sparkXr = new SparkXr({
+        renderer,
+        mode: "vr",
+        referenceSpaceType: "local-floor",
+        sessionInit: {
+          optionalFeatures: ["hand-tracking"],
+        },
+        onReady: resolve,
+      });
     });
+
+    if (!supported) {
+      sparkXr = null;
+      store.setVrSupported(false);
+      return null;
+    }
+
+    vrButton = sparkXr.element;
   } catch (err) {
-    console.warn("VR button creation failed:", err);
+    sparkXr = null;
+    vrButton = null;
+    console.warn("VR support initialization failed:", err);
     store.setVrSupported(false);
     return null;
   }
@@ -1058,8 +1077,7 @@ export const initVrSupport = async (containerEl) => {
     return null;
   }
 
-  // Do NOT append to DOM - the button auto-shows itself when VR is supported.
-  // Keep it detached and just click it programmatically via enterVrSession().
+  // Keep the SparkXr button hidden and enter sessions programmatically.
   vrButton.style.display = "none";
   attachSessionListeners();
   store.setVrSupported(true);

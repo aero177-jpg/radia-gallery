@@ -22,8 +22,11 @@ const MIN_MODEL_SCALE = 0.1;
 const MAX_MODEL_SCALE = 10.0;
 const DEFAULT_MODEL_SCALE = 1.0;
 const DEFAULT_ASPECT_RATIO = null;
+const DEFAULT_BASE_ORIENTATION = 'y-down';
 const DEFAULT_VIEW_ID = 'view-1';
 const CUSTOM_METADATA_SCHEMA_VERSION = 3;
+
+const BASE_ORIENTATIONS = new Set(['y-up', 'y-down', 'z-up', 'z-down']);
 
 /**
  * Clamp scale to valid range
@@ -38,6 +41,20 @@ const normalizeAspectRatio = (value) => {
   if (value === null) return DEFAULT_ASPECT_RATIO;
   const num = Number(value);
   return Number.isFinite(num) && num > 0 ? num : DEFAULT_ASPECT_RATIO;
+};
+
+export const normalizeBaseOrientation = (value) => (
+  BASE_ORIENTATIONS.has(value) ? value : DEFAULT_BASE_ORIENTATION
+);
+
+const getBaseOrientationRotationX = (orientation) => {
+  switch (normalizeBaseOrientation(orientation)) {
+    case 'y-up': return 0;
+    case 'y-down': return Math.PI;
+    case 'z-up': return -Math.PI / 2;
+    case 'z-down': return Math.PI / 2;
+    default: return Math.PI;
+  }
 };
 
 /**
@@ -98,7 +115,7 @@ const applyModelScale = (mesh, scale) => {
 };
 
 /**
- * Apply full custom transform: flip + scale
+ * Apply full custom transform: base orientation + scale
  */
 export const applyCustomModelTransform = (mesh, overrides = {}) => {
   if (!mesh) return;
@@ -111,8 +128,14 @@ export const applyCustomModelTransform = (mesh, overrides = {}) => {
   mesh.matrix.copy(baseMatrix);
   mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
 
-  // Apply CV→GL flip if requested
-  if (overrides.applyCoordinateFlip) {
+  const hasBaseOrientation = typeof overrides.baseOrientation === 'string';
+
+  // Explicit orientation supersedes the legacy CV→GL flip. Its y-down
+  // default is the same 180-degree X rotation as that legacy transform.
+  if (hasBaseOrientation) {
+    mesh.rotateX(getBaseOrientationRotationX(overrides.baseOrientation));
+    mesh.userData.__cvToThreeApplied = true;
+  } else if (overrides.applyCoordinateFlip) {
     const cvToGl = makeAxisFlipCvToGl();
     mesh.applyMatrix4(cvToGl);
     mesh.userData.__cvToThreeApplied = true;
@@ -213,6 +236,7 @@ export const captureCustomMetadataPayload = (overrides = {}) => {
     model: {
       applyCoordinateFlip: true, // Always apply for non-ML Sharp splats
       modelScale: clampScale(overrides.modelScale ?? DEFAULT_MODEL_SCALE),
+      baseOrientation: normalizeBaseOrientation(overrides.baseOrientation),
     },
     savedAt: Date.now(),
   };
@@ -234,6 +258,7 @@ const normalizeViewRecord = (view, fallbackId) => {
     model: {
       applyCoordinateFlip: view?.model?.applyCoordinateFlip !== false,
       modelScale: clampScale(view?.model?.modelScale ?? DEFAULT_MODEL_SCALE),
+      baseOrientation: normalizeBaseOrientation(view?.model?.baseOrientation),
     },
     savedAt: Number.isFinite(view.savedAt) ? view.savedAt : Date.now(),
   };

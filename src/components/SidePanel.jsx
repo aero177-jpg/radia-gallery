@@ -13,7 +13,7 @@ import SharingSettings from './SharingSettings.jsx';
 import StorageSourceList from './StorageSourceList';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import { loadFromStorageSource, resize } from '../fileLoader';
-import { requestRender } from '../viewer';
+import { getProvokingVertexSupport, requestRender } from '../viewer';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronLeft, faHouse } from '@fortawesome/free-solid-svg-icons';
 import { resetLandingView } from '../utils/resetLandingView';
@@ -42,8 +42,16 @@ function SidePanel() {
   const [hoverRevealed, setHoverRevealed] = useState(false);
   // Block interactions briefly after panel slides in to prevent tap-through
   const [suppressInteractions, setSuppressInteractions] = useState(false);
+  const [provokingVertexSupported, setProvokingVertexSupported] = useState(null);
 
   const isUiHidden = slideshowPlaying || viewerControlsDimmed;
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setProvokingVertexSupported(getProvokingVertexSupport());
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   // Open the panel if it is currently closed (used for hover target)
   const openPanel = useCallback(() => {
@@ -242,6 +250,10 @@ function SidePanel() {
             <div class="row">
               <span>Time</span>
               <span>{fileInfo.loadTime}</span>
+            </div>
+            <div class="row">
+              <span>Provoking vertex</span>
+              <span>{provokingVertexSupported === null ? 'Checking...' : provokingVertexSupported ? 'Supported' : 'Not supported'}</span>
             </div>
             <button
               class="home-btn debug-home"

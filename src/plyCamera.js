@@ -1,5 +1,6 @@
-import { PlyReader } from "@sparkjsdev/spark";
 import { buildCameraMetadata } from "./cameraMetadata.js";
+
+const textDecoder = new TextDecoder("utf-8");
 
 const FIELD_BYTES = {
   char: 1,
@@ -10,6 +11,65 @@ const FIELD_BYTES = {
   uint: 4,
   float: 4,
   double: 8,
+};
+
+const parsePlyHeader = (fileBytes) => {
+  const bytes = fileBytes instanceof Uint8Array ? fileBytes : new Uint8Array(fileBytes);
+  const elements = [];
+  const comments = [];
+  let currentElement = null;
+  let format = null;
+  let lineStart = 0;
+
+  while (lineStart < bytes.length) {
+    let lineEnd = lineStart;
+    while (lineEnd < bytes.length && bytes[lineEnd] !== 0x0a) lineEnd += 1;
+
+    const line = textDecoder.decode(bytes.subarray(lineStart, lineEnd)).replace(/\r$/, "").trim();
+    const tokens = line.split(/\s+/);
+    const keyword = tokens[0];
+
+    if (keyword === "format") {
+      format = tokens[1];
+    } else if (keyword === "comment") {
+      comments.push(tokens.slice(1).join(" "));
+    } else if (keyword === "element") {
+      currentElement = {
+        name: tokens[1],
+        count: Number(tokens[2]),
+        properties: {},
+      };
+      elements.push(currentElement);
+    } else if (keyword === "property" && currentElement) {
+      if (tokens[1] === "list") {
+        currentElement.properties[tokens[4]] = {
+          isList: true,
+          countType: tokens[2],
+          type: tokens[3],
+        };
+      } else {
+        currentElement.properties[tokens[2]] = {
+          isList: false,
+          type: tokens[1],
+        };
+      }
+    } else if (keyword === "end_header") {
+      if (format !== "binary_little_endian" && format !== "binary_big_endian") {
+        throw new Error(`Unsupported PLY format: ${format ?? "unknown"}`);
+      }
+
+      return {
+        data: bytes.subarray(lineEnd < bytes.length ? lineEnd + 1 : lineEnd),
+        elements,
+        comments,
+        littleEndian: format === "binary_little_endian",
+      };
+    }
+
+    lineStart = lineEnd < bytes.length ? lineEnd + 1 : lineEnd;
+  }
+
+  throw new Error("PLY header is missing end_header");
 };
 
 const readScalar = (dataView, offset, type, littleEndian) => {
@@ -150,30 +210,28 @@ const readSinglePropertyElement = (element, dataView, elementOffset, littleEndia
 };
 
 export const readPlyCamera = async (fileBytes) => {
-  const ply = new PlyReader({ fileBytes });
-  await ply.parseHeader();
-
-  if (!ply.data) return null;
+  const ply = parsePlyHeader(fileBytes);
 
   const wanted = new Set(["intrinsic", "extrinsic", "image_size", "color_space"]);
   const raw = {};
 
   let offset = 0;
-  for (const [elementName, element] of Object.entries(ply.elements)) {
-    if (wanted.has(elementName)) {
-      const read = readSinglePropertyElement(element, ply.data, offset, ply.littleEndian);
+  const dataView = new DataView(ply.data.buffer, ply.data.byteOffset, ply.data.byteLength);
+  for (const element of ply.elements) {
+    if (wanted.has(element.name)) {
+      const read = readSinglePropertyElement(element, dataView, offset, ply.littleEndian);
       if (read) {
-        raw[elementName] = read.values;
+        raw[element.name] = read.values;
         offset = read.nextOffset;
         continue;
       }
     }
 
-    offset = skipElement(element, ply.data, offset, ply.littleEndian);
+    offset = skipElement(element, dataView, offset, ply.littleEndian);
   }
 
   return buildCameraMetadata({
     ...raw,
-    headerComments: ply.comments ?? [],
+    headerComments: ply.comments,
   });
 };

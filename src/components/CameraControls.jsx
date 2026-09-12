@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import { useStore } from '../store';
-import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, setStereoEyeSeparation, setStereoAspect as setStereoAspectRatio, setStereoScale as setStereoRenderScale, setStereoOverlap as setViewerStereoOverlap, setStereoEffectEnabled, getFocusDistance, calculateOptimalEyeSeparation, setOriginalImageAspect } from '../viewer';
+import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, setStereoEyeSeparation, setStereoAspect as setStereoAspectRatio, setStereoScale as setStereoRenderScale, setStereoOverlap as setViewerStereoOverlap, setStereoEffectEnabled, getFocusDistance, calculateOptimalEyeSeparation, setOriginalImageAspect, setShowGrid } from '../viewer';
 import { FocusIcon, KeyboardIcon } from '../icons/customIcons';
 import { applyCameraRangeDegrees, restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
 import { currentMesh, raycaster, SplatMesh, scene } from '../viewer';
@@ -26,6 +26,7 @@ import {
   addCustomMetadataViewForAsset,
   clearCustomMetadataViewForAsset,
   applyFullOrbitConstraints,
+  applyCustomModelTransform,
   restoreOrbitConstraints,
 } from "../customMetadata.js";
 import { enterVrSession } from '../vrMode';
@@ -47,6 +48,13 @@ const ASPECT_OPTIONS = [
   { value: '9:16', label: '9:16', ratio: 9 / 16 },
   { value: '4:3', label: '4:3', ratio: 4 / 3 },
   { value: '3:4', label: '3:4', ratio: 3 / 4 },
+];
+
+const BASE_ORIENTATION_OPTIONS = [
+  { value: 'y-up', label: 'Y up' },
+  { value: 'y-down', label: 'Y down' },
+  { value: 'z-up', label: 'Z up' },
+  { value: 'z-down', label: 'Z down' },
 ];
 
 const aspectKeyToRatio = (key) => {
@@ -222,6 +230,8 @@ function CameraControls() {
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const customModelScale = useStore((state) => state.customModelScale);
   const setCustomModelScale = useStore((state) => state.setCustomModelScale);
+  const customBaseOrientation = useStore((state) => state.customBaseOrientation);
+  const setCustomBaseOrientation = useStore((state) => state.setCustomBaseOrientation);
   const customAspectRatio = useStore((state) => state.customAspectRatio);
   const setCustomAspectRatio = useStore((state) => state.setCustomAspectRatio);
   const setCustomMetadataAvailable = useStore((state) => state.setCustomMetadataAvailable);
@@ -248,9 +258,26 @@ function CameraControls() {
   focusModeRef.current = focusMode;
   const [isClearingCustomMetadata, setIsClearingCustomMetadata] = useState(false);
   const [isSavingNewView, setIsSavingNewView] = useState(false);
+  const [showGrid, setShowGridVisible] = useState(false);
   const [customNearClip, setCustomNearClip] = useState(
     clampCustomNearClip(camera?.near ?? defaultCamera?.near ?? DEFAULT_CUSTOM_NEAR_CLIP),
   );
+
+  const handleBaseOrientationChange = useCallback((event) => {
+    const baseOrientation = event.target.value;
+    setCustomBaseOrientation(baseOrientation);
+    applyCustomModelTransform(currentMesh, {
+      applyCoordinateFlip: true,
+      modelScale: customModelScale,
+      baseOrientation,
+    });
+  }, [customModelScale, setCustomBaseOrientation]);
+
+  const handleGridToggle = useCallback((event) => {
+    const enabled = event.target.checked;
+    setShowGridVisible(enabled);
+    setShowGrid(enabled);
+  }, []);
 
   // Sync focus mode with custom focus state from store
   useEffect(() => {
@@ -772,6 +799,7 @@ function CameraControls() {
 
     const payload = captureCustomMetadataPayload({
       modelScale: customModelScale,
+      baseOrientation: customBaseOrientation,
       aspectRatio: aspectKeyToRatio(customAspectRatio),
     });
 
@@ -812,7 +840,7 @@ function CameraControls() {
     setMetadataMissing(false);
     setCustomMetadataControlsVisible(false);
     addLog('Custom metadata saved');
-  }, [currentFileName, customModelScale, customAspectRatio, addLog, assets, currentAssetIndex, updateAssetPreview, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setAssets]);
+  }, [currentFileName, customModelScale, customBaseOrientation, customAspectRatio, addLog, assets, currentAssetIndex, updateAssetPreview, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setAssets]);
 
   /**
    * Saves the initial view when no metadata exists, but keeps the editor
@@ -834,6 +862,7 @@ function CameraControls() {
 
     const payload = captureCustomMetadataPayload({
       modelScale: customModelScale,
+      baseOrientation: customBaseOrientation,
       aspectRatio: aspectKeyToRatio(customAspectRatio),
     });
 
@@ -876,7 +905,7 @@ function CameraControls() {
     setCustomMetadataControlsVisible(true);
     setCameraSettingsExpanded(true);
     addLog('Initial view saved — reposition camera and save more views');
-  }, [currentFileName, customModelScale, customAspectRatio, addLog, assets, currentAssetIndex, updateAssetPreview, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setAssets, setCameraSettingsExpanded]);
+  }, [currentFileName, customModelScale, customBaseOrientation, customAspectRatio, addLog, assets, currentAssetIndex, updateAssetPreview, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setAssets, setCameraSettingsExpanded]);
 
   const handleSaveAndAddNewView = useCallback(async () => {
     if (!currentFileName || currentFileName === '-') {
@@ -892,6 +921,7 @@ function CameraControls() {
 
     const payload = captureCustomMetadataPayload({
       modelScale: customModelScale,
+      baseOrientation: customBaseOrientation,
       aspectRatio: aspectKeyToRatio(customAspectRatio),
     });
 
@@ -967,7 +997,7 @@ function CameraControls() {
     // Ensure editor stays open after view instance load (which resets to false)
     setCustomMetadataControlsVisible(true);
     setCameraSettingsExpanded(true);
-  }, [currentFileName, assets, currentAssetIndex, customModelScale, customAspectRatio, setAssets, setCurrentAssetIndex, addLog, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, updateAssetPreview, setCameraSettingsExpanded]);
+  }, [currentFileName, assets, currentAssetIndex, customModelScale, customBaseOrientation, customAspectRatio, setAssets, setCurrentAssetIndex, addLog, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, updateAssetPreview, setCameraSettingsExpanded]);
 
   const handleClearCustomMetadata = useCallback(async () => {
     if (!currentFileName || currentFileName === '-' || isClearingCustomMetadata) return;
@@ -1012,6 +1042,7 @@ function CameraControls() {
       setMetadataMissing(false);
       setCustomMetadataControlsVisible(false);
       setCustomModelScale(1);
+      setCustomBaseOrientation('y-down');
       setCustomAspectRatio('full');
       setCustomNearClip(clampCustomNearClip(defaultCamera?.near ?? DEFAULT_CUSTOM_NEAR_CLIP));
       setOriginalImageAspect(null);
@@ -1030,7 +1061,7 @@ function CameraControls() {
     } finally {
       setIsClearingCustomMetadata(false);
     }
-  }, [currentFileName, isClearingCustomMetadata, addLog, assets, currentAssetIndex, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setCustomModelScale, setCustomAspectRatio, setAssets, setCurrentAssetIndex, setHasCustomFocus]);
+  }, [currentFileName, isClearingCustomMetadata, addLog, assets, currentAssetIndex, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setCustomModelScale, setCustomBaseOrientation, setCustomAspectRatio, setAssets, setCurrentAssetIndex, setHasCustomFocus]);
 
   /**
    * Closes edit mode and reloads current asset to restore its saved camera pose.
@@ -1429,6 +1460,35 @@ function CameraControls() {
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            <div class="control-row">
+              <span class="control-label">Base orientation</span>
+              <div class="control-track">
+                <select
+                  class="quality-select"
+                  value={customBaseOrientation}
+                  onChange={handleBaseOrientationChange}
+                >
+                  {BASE_ORIENTATION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div class="control-row">
+              <span class="control-label">Grid</span>
+              <div class="control-track">
+                <input
+                  type="checkbox"
+                  checked={showGrid}
+                  onChange={handleGridToggle}
+                  aria-label="Show orientation grid"
+                />
               </div>
             </div>
 

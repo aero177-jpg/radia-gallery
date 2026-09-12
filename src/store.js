@@ -352,6 +352,7 @@ export const useStore = create(
   customMetadataAvailable: false,
   customMetadataControlsVisible: false,
   customModelScale: 1,
+  customBaseOrientation: 'y-down',
   customAspectRatio: 'full',
   // Show FPS counter overlay
   showFps: false,
@@ -587,6 +588,7 @@ export const useStore = create(
   setCustomMetadataAvailable: (customMetadataAvailable) => set({ customMetadataAvailable }),
   setCustomMetadataControlsVisible: (customMetadataControlsVisible) => set({ customMetadataControlsVisible }),
   setCustomModelScale: (customModelScale) => set({ customModelScale }),
+  setCustomBaseOrientation: (customBaseOrientation) => set({ customBaseOrientation }),
   setCustomAspectRatio: (customAspectRatio) => set({ customAspectRatio }),
   
   /** Updates file info (merges with existing) */

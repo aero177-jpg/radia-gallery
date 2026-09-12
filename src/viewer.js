@@ -73,6 +73,11 @@ export const setActiveCamera = (cam) => { activeCamera = cam; };
 export const setOriginalImageAspect = (aspect) => { originalImageAspect = aspect; };
 export const setDollyZoomEnabled = (enabled) => { dollyZoomEnabled = enabled; };
 export const setBgImageUrl = (url) => { bgImageUrl = url; };
+export const getProvokingVertexSupport = () => {
+  const gl = renderer?.getContext?.();
+  if (!gl) return null;
+  return Boolean(gl.getExtension('WEBGL_provoking_vertex'));
+};
 export const setShowGrid = (enabled) => {
   showGrid = Boolean(enabled);
   if (worldGrid) {
