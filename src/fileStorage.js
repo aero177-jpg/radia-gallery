@@ -1,3 +1,5 @@
+import { DEFAULT_AUTO_ORBIT_SETTINGS, getAutoOrbitParameters, normalizeAutoOrbitSettings } from './autoOrbitConfig.js';
+
 /**
  * File-based persistent storage module using IndexedDB.
  * Stores per-file settings (animation, focus distance) and binary preview blobs.
@@ -27,6 +29,7 @@ const PREVIEW_VERSION = 1;
  * @property {number} lastModified - Timestamp of last update
  * @property {AnimationSettings} [animation] - Load animation preferences
  * @property {Object} [customAnimation] - Per-file custom animation overrides
+ * @property {Object} [autoOrbit] - Whole-splat auto-orbit settings
  * @property {string} [annotation] - Per-file annotation text
  * @property {number} [focusDistance] - Optional user-set focus distance override
  * @property {CustomCameraMetadata} [customMetadata] - Optional user-set camera metadata override
@@ -57,9 +60,9 @@ const PREVIEW_VERSION = 1;
  * @property {number} cameraPose.zoom - Camera zoom
  * @property {number[]} cameraPose.target - Orbit target [x, y, z]
  * @property {Object} [model] - Model overrides
- * @property {boolean} [model.flipX] - Rotate 180° around X axis
- * @property {boolean} [model.flipY] - Rotate 180° around Y axis
  * @property {number} [model.modelScale] - Scalar scale multiplier
+ * @property {string} [model.baseOrientation] - Base orientation preset
+ * @property {{x:number,y:number,z:number}} [model.modelRotation] - X/Y/Z rotation percentages (-100 to 100, mapped to -180° to 180°)
  * @property {Object} [orbit] - Orbit control overrides
  * @property {boolean} [orbit.fullOrbit] - Allow full 360° azimuth with 180° polar
  */
@@ -209,7 +212,30 @@ export const saveAnimationSettings = async (fileName, animation) => {
  * @returns {Promise<boolean>} Success status
  */
 export const saveCustomAnimationSettings = async (fileName, customAnimation) => {
-  return await saveFileSettings(fileName, { customAnimation });
+  const existing = await loadFileSettings(fileName);
+  const preservedAutoOrbit = customAnimation?.autoOrbit
+    || existing?.customAnimation?.autoOrbit;
+  const nextCustomAnimation = preservedAutoOrbit
+    ? { ...(customAnimation || {}), autoOrbit: preservedAutoOrbit }
+    : customAnimation;
+  return await saveFileSettings(fileName, { customAnimation: nextCustomAnimation });
+};
+
+/**
+ * Saves whole-splat auto-orbit settings. The setting is intentionally stored
+ * outside customAnimation so view-specific animation overrides cannot change
+ * whether auto orbit is enabled for the connected splat views.
+ * @param {string} fileName - Base file name
+ * @param {Object} settings - Auto-orbit settings or a partial update
+ * @returns {Promise<boolean>} Success status
+ */
+export const saveAutoOrbitSettings = async (fileName, settings) => {
+  const existing = await loadFileSettings(fileName);
+  const current = existing?.autoOrbit
+    || existing?.customAnimation?.autoOrbit
+    || DEFAULT_AUTO_ORBIT_SETTINGS;
+  const autoOrbit = normalizeAutoOrbitSettings({ ...current, ...(settings || {}) });
+  return await saveFileSettings(fileName, { autoOrbit });
 };
 
 /**
@@ -225,11 +251,43 @@ export const saveViewCustomAnimationSettings = async (fileName, viewId, customAn
   if (!viewId) return false;
   const existing = await loadFileSettings(fileName);
   const viewCustomAnimations = { ...((existing || {}).viewCustomAnimations || {}) };
+  const previousViewSettings = viewCustomAnimations[viewId] || {};
+  const preservedAutoOrbit = previousViewSettings.autoOrbit;
   if (customAnimation && Object.keys(customAnimation).length > 0) {
-    viewCustomAnimations[viewId] = customAnimation;
+    viewCustomAnimations[viewId] = {
+      ...(preservedAutoOrbit ? { autoOrbit: preservedAutoOrbit } : {}),
+      ...customAnimation,
+    };
   } else {
-    delete viewCustomAnimations[viewId];
+    if (preservedAutoOrbit) {
+      viewCustomAnimations[viewId] = { autoOrbit: preservedAutoOrbit };
+    } else {
+      delete viewCustomAnimations[viewId];
+    }
   }
+  return await saveFileSettings(fileName, { viewCustomAnimations });
+};
+
+/**
+ * Saves orbit parameters for one view without changing the whole-splat
+ * enabled flag or any other per-view animation settings.
+ * @param {string} fileName - Base file name
+ * @param {string} viewId - View identifier
+ * @param {Object} settings - Orbit mode, speed, or path
+ * @returns {Promise<boolean>} Success status
+ */
+export const saveViewAutoOrbitSettings = async (fileName, viewId, settings) => {
+  if (!viewId) return false;
+  const existing = await loadFileSettings(fileName);
+  const viewCustomAnimations = { ...((existing || {}).viewCustomAnimations || {}) };
+  const previousViewSettings = viewCustomAnimations[viewId] || {};
+  const current = previousViewSettings.autoOrbit || DEFAULT_AUTO_ORBIT_SETTINGS;
+  const autoOrbit = getAutoOrbitParameters({ ...current, ...(settings || {}) });
+
+  viewCustomAnimations[viewId] = {
+    ...previousViewSettings,
+    autoOrbit,
+  };
   return await saveFileSettings(fileName, { viewCustomAnimations });
 };
 

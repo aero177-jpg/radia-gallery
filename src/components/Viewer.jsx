@@ -21,10 +21,13 @@ import {
   SplatMesh,
 } from '../viewer';
 import { restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
-import { startAnchorTransition } from '../cameraAnimations';
+import { startAnchorTransition, cancelAnchorTransition } from '../cameraAnimations';
 import { cancelLoadZoomAnimation } from '../customAnimations';
 import { cancelContinuousZoomAnimation, cancelContinuousOrbitAnimation, cancelContinuousVerticalOrbitAnimation } from '../cameraAnimations';
+import { handleAutoOrbitInputEnd, handleAutoOrbitInputStart, scheduleAutoOrbit, toggleAutoOrbit } from '../autoOrbit';
+import { normalizeAutoOrbitSettings } from '../autoOrbitConfig';
 import { startSlideshow, stopSlideshow, isSlideshowPaused } from '../slideshowController';
+import { isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode } from '../immersiveMode';
 import { loadFromStorageSource, loadNextAsset, loadPrevAsset, resize } from '../fileLoader';
 import { resetSplatManager } from '../splatManager';
 import { clearBackground } from '../backgroundManager';
@@ -43,6 +46,15 @@ const CAMERA_MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'
 const CAMERA_MOVE_WORLD_UP = new THREE.Vector3(0, 1, 0);
 const CAMERA_MOVE_FAST_KEYS = new Set(['ShiftLeft', 'ShiftRight']);
 const CAMERA_MOVE_FAST_MULTIPLIER = 4;
+const CAMERA_MOVE_SPEED_MULTIPLIERS = {
+  slower: 0.5,
+  default: 1,
+  faster: 2,
+};
+const CAMERA_LOCK_HOLD_MS = 180;
+const CAMERA_LOCK_ORBIT_SPEED = 1.25;
+const CAMERA_LOCK_MIN_POLAR_ANGLE = Math.PI * 0.05;
+const CAMERA_LOCK_MAX_POLAR_ANGLE = Math.PI * 0.95;
 
 /**
  * Checks if an event target is an input element.
@@ -176,6 +188,12 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   const movementFastRef = useRef(false);
   const movementFrameRef = useRef(null);
   const movementLastTimeRef = useRef(0);
+  const wheelEndTimerRef = useRef(null);
+  const spaceHeldRef = useRef(false);
+  const cameraLockActiveRef = useRef(false);
+  const cameraLockTimerRef = useRef(null);
+  const cameraLockPausedImmersiveRef = useRef(false);
+  const cameraLockControlsEnabledRef = useRef(null);
 
   const { hasOriginalMetadata, customMetadataMode } = useStore();
 
@@ -376,11 +394,25 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
     }
 
     const shouldIgnoreViewerInput = () => panelOpen || assetSidebarOpen;
+    const isSlideshowPlaybackActive = () => useStore.getState().slideshowPlaying;
+    const isAutoOrbitControlEnabled = () => {
+      const state = useStore.getState();
+      return state.isCustomModel && normalizeAutoOrbitSettings(
+        state.fileCustomAnimation?.autoOrbit,
+      ).enabled;
+    };
     const canUseMetadataCameraMovement = () => {
       if (!camera || !controls || !currentMesh) return false;
       if (!(metadataMissing || customMetadataAvailable)) return false;
       if (document.querySelector('.modal-overlay')) return false;
       return true;
+    };
+
+    const clearCameraLockTimer = () => {
+      if (cameraLockTimerRef.current) {
+        clearTimeout(cameraLockTimerRef.current);
+        cameraLockTimerRef.current = null;
+      }
     };
 
     const stopCameraMovement = () => {
@@ -391,6 +423,43 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
         cancelAnimationFrame(movementFrameRef.current);
         movementFrameRef.current = null;
       }
+    };
+
+    const deactivateCameraLock = () => {
+      clearCameraLockTimer();
+      if (!cameraLockActiveRef.current) return;
+
+      cameraLockActiveRef.current = false;
+      if (controls) {
+        controls.enabled = cameraLockControlsEnabledRef.current ?? true;
+        controls.update();
+      }
+      cameraLockControlsEnabledRef.current = null;
+
+      if (cameraLockPausedImmersiveRef.current) {
+        resumeImmersiveMode();
+        cameraLockPausedImmersiveRef.current = false;
+      }
+      updateDollyZoomBaselineFromCamera();
+      requestRender();
+    };
+
+    const activateCameraLock = () => {
+      clearCameraLockTimer();
+      if (cameraLockActiveRef.current) return true;
+      if (!canUseMetadataCameraMovement()) return false;
+
+      cameraLockActiveRef.current = true;
+      cancelAnchorTransition();
+      cancelLoadZoomAnimation();
+      cameraLockControlsEnabledRef.current = controls.enabled;
+      controls.enabled = false;
+
+      if (isImmersiveModeActive()) {
+        pauseImmersiveMode();
+        cameraLockPausedImmersiveRef.current = true;
+      }
+      return true;
     };
 
     const stepCameraMovement = (timestamp) => {
@@ -412,26 +481,64 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
         up.copy(CAMERA_MOVE_WORLD_UP);
       }
 
-      camera.getWorldDirection(forward).normalize();
-      right.crossVectors(forward, up).normalize();
-      if (right.lengthSq() < 1e-6) {
-        right.crossVectors(forward, CAMERA_MOVE_WORLD_UP).normalize();
-      }
-
-      const movement = new THREE.Vector3();
       const activeKeys = movementKeysRef.current;
-      if (activeKeys.has('KeyW')) movement.add(forward);
-      if (activeKeys.has('KeyS')) movement.sub(forward);
-      if (activeKeys.has('KeyD')) movement.add(right);
-      if (activeKeys.has('KeyA')) movement.sub(right);
-      if (activeKeys.has('KeyE')) movement.add(up);
-      if (activeKeys.has('KeyQ')) movement.sub(up);
+      const focusDistance = camera.position.distanceTo(controls.target);
+      const baseSpeedMultiplier = CAMERA_MOVE_SPEED_MULTIPLIERS[
+        useStore.getState().cameraMovementSpeed
+      ] ?? CAMERA_MOVE_SPEED_MULTIPLIERS.default;
+      const speedMultiplier = baseSpeedMultiplier
+        * (movementFastRef.current ? CAMERA_MOVE_FAST_MULTIPLIER : 1);
 
-      if (movement.lengthSq() > 0) {
+      if (cameraLockActiveRef.current) {
+        const orbitOffset = camera.position.clone().sub(controls.target);
+        if (orbitOffset.lengthSq() > 1e-6) {
+          const orbit = new THREE.Spherical().setFromVector3(orbitOffset);
+          const orbitStep = CAMERA_LOCK_ORBIT_SPEED * speedMultiplier * dt;
+          if (activeKeys.has('KeyD')) orbit.theta += orbitStep;
+          if (activeKeys.has('KeyA')) orbit.theta -= orbitStep;
+          if (activeKeys.has('KeyE')) orbit.phi = Math.max(CAMERA_LOCK_MIN_POLAR_ANGLE, orbit.phi - orbitStep);
+          if (activeKeys.has('KeyQ')) orbit.phi = Math.min(CAMERA_LOCK_MAX_POLAR_ANGLE, orbit.phi + orbitStep);
+          camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(orbit));
+        }
+
+        camera.getWorldDirection(forward).setY(0);
+        if (forward.lengthSq() > 1e-6) {
+          forward.normalize();
+          const trackSpeed = Math.max(0.1, focusDistance * 0.9) * speedMultiplier;
+          const trackDelta = forward.multiplyScalar(trackSpeed * dt);
+          if (activeKeys.has('KeyW')) {
+            camera.position.add(trackDelta);
+            controls.target.add(trackDelta);
+          }
+          if (activeKeys.has('KeyS')) {
+            camera.position.sub(trackDelta);
+            controls.target.sub(trackDelta);
+          }
+        }
+        camera.lookAt(controls.target);
+        camera.updateMatrixWorld();
+        updateDollyZoomBaselineFromCamera();
+        requestRender();
+      } else {
+        camera.getWorldDirection(forward).normalize();
+        right.crossVectors(forward, up).normalize();
+        if (right.lengthSq() < 1e-6) {
+          right.crossVectors(forward, CAMERA_MOVE_WORLD_UP).normalize();
+        }
+
+        const movement = new THREE.Vector3();
+        if (activeKeys.has('KeyW')) movement.add(forward);
+        if (activeKeys.has('KeyS')) movement.sub(forward);
+        if (activeKeys.has('KeyD')) movement.add(right);
+        if (activeKeys.has('KeyA')) movement.sub(right);
+        if (activeKeys.has('KeyE')) movement.add(up);
+        if (activeKeys.has('KeyQ')) movement.sub(up);
+
+        if (movement.lengthSq() <= 0) return;
         movement.normalize();
         const focusDistance = camera.position.distanceTo(controls.target);
         const moveSpeed = Math.max(0.1, focusDistance * 0.9)
-          * (movementFastRef.current ? CAMERA_MOVE_FAST_MULTIPLIER : 1);
+          * speedMultiplier;
         const delta = movement.multiplyScalar(moveSpeed * dt);
         camera.position.add(delta);
         controls.target.add(delta);
@@ -456,7 +563,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       if (now - lastTapTimeRef.current < 300) return;
       lastTapTimeRef.current = now;
 
-      if (slideshowPlaying) {
+      if (isSlideshowPlaybackActive()) {
         stopSlideshow();
         return;
       }
@@ -549,6 +656,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
      */
     const cancelLoadZoomOnUserInput = () => {
       if (shouldIgnoreViewerInput()) return;
+      handleAutoOrbitInputStart();
       cancelLoadZoomAnimation();
       const st = useStore.getState();
       if (st.slideshowPlaying) {
@@ -564,10 +672,24 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       }
     };
 
+    // OrbitControls does not emit an end event for wheel zoom. Debounce the
+    // wheel stream so auto orbit resumes once the gesture has settled.
+    const handleWheelInput = () => {
+      cancelLoadZoomOnUserInput();
+      if (wheelEndTimerRef.current) {
+        clearTimeout(wheelEndTimerRef.current);
+      }
+      wheelEndTimerRef.current = setTimeout(() => {
+        wheelEndTimerRef.current = null;
+        handleAutoOrbitInputEnd();
+      }, 120);
+    };
+
     // Cancel animation on any user input
     controls.addEventListener('start', cancelLoadZoomOnUserInput);
+    controls.addEventListener('end', handleAutoOrbitInputEnd);
     renderer.domElement.addEventListener('pointerdown', cancelLoadZoomOnUserInput);
-    renderer.domElement.addEventListener('wheel', cancelLoadZoomOnUserInput, { passive: true });
+    renderer.domElement.addEventListener('wheel', handleWheelInput, { passive: true });
     renderer.domElement.addEventListener('touchstart', cancelLoadZoomOnUserInput);
     renderer.domElement.addEventListener('pointerdown', handleLongPressPointerDown, { passive: true });
     renderer.domElement.addEventListener('pointermove', handleLongPressPointerMove, { passive: true });
@@ -596,12 +718,14 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       const splatHit = intersects.find((i) => i.object instanceof SplatMesh) ?? null;
 
       if (splatHit) {
+        handleAutoOrbitInputStart();
         // Animate to hit point
         startAnchorTransition(splatHit.point, {
           duration: 700,
           onComplete: () => {
             updateDollyZoomBaselineFromCamera();
             requestRender();
+            scheduleAutoOrbit();
           },
         });
         setAnchorState({
@@ -634,6 +758,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
       if (document.querySelector('.modal-overlay')) {
         stopCameraMovement();
+        deactivateCameraLock();
         return;
       }
 
@@ -649,6 +774,11 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
       if (CAMERA_MOVE_KEYS.has(event.code) && canUseMetadataCameraMovement()) {
         event.preventDefault();
+        handleAutoOrbitInputStart();
+        if (spaceHeldRef.current && isSlideshowPlaybackActive()) {
+          stopSlideshow();
+        }
+        if (spaceHeldRef.current && !activateCameraLock()) return;
         movementKeysRef.current.add(event.code);
         movementFastRef.current = event.shiftKey || movementFastRef.current;
         startCameraMovementLoop();
@@ -664,10 +794,12 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
       if (event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar') {
         event.preventDefault();
-        if (slideshowPlaying) {
-          stopSlideshow();
-        } else {
-          startSlideshow();
+        if (event.repeat || spaceHeldRef.current) return;
+        spaceHeldRef.current = true;
+        if (canUseMetadataCameraMovement()) {
+          cameraLockTimerRef.current = setTimeout(() => {
+            if (spaceHeldRef.current) activateCameraLock();
+          }, CAMERA_LOCK_HOLD_MS);
         }
         return;
       }
@@ -687,6 +819,23 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
     };
 
     const handleKeyup = (event) => {
+      if (event.code === 'Space') {
+        const wasLocked = cameraLockActiveRef.current;
+        spaceHeldRef.current = false;
+        clearCameraLockTimer();
+        stopCameraMovement();
+        deactivateCameraLock();
+        if (!wasLocked) {
+          if (isAutoOrbitControlEnabled()) {
+            toggleAutoOrbit();
+          } else if (isSlideshowPlaybackActive()) {
+            stopSlideshow();
+          } else {
+            startSlideshow();
+          }
+        }
+        return;
+      }
       if (CAMERA_MOVE_FAST_KEYS.has(event.code)) {
         movementFastRef.current = false;
         return;
@@ -695,16 +844,21 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       movementKeysRef.current.delete(event.code);
       if (movementKeysRef.current.size === 0) {
         stopCameraMovement();
+        handleAutoOrbitInputEnd();
       }
     };
 
     const handleWindowBlur = () => {
+      spaceHeldRef.current = false;
       stopCameraMovement();
+      deactivateCameraLock();
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden || document.querySelector('.modal-overlay')) {
+        spaceHeldRef.current = false;
         stopCameraMovement();
+        deactivateCameraLock();
       }
     };
 
@@ -714,19 +868,26 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      spaceHeldRef.current = false;
       stopCameraMovement();
+      deactivateCameraLock();
       if (controls) {
         controls.removeEventListener('start', cancelLoadZoomOnUserInput);
+        controls.removeEventListener('end', handleAutoOrbitInputEnd);
       }
       if (renderer?.domElement) {
         renderer.domElement.removeEventListener('pointerdown', cancelLoadZoomOnUserInput);
-        renderer.domElement.removeEventListener('wheel', cancelLoadZoomOnUserInput);
+        renderer.domElement.removeEventListener('wheel', handleWheelInput);
         renderer.domElement.removeEventListener('touchstart', cancelLoadZoomOnUserInput);
         renderer.domElement.removeEventListener('pointerdown', handleLongPressPointerDown);
         renderer.domElement.removeEventListener('pointermove', handleLongPressPointerMove);
         renderer.domElement.removeEventListener('pointerup', handleLongPressPointerUp);
         renderer.domElement.removeEventListener('pointercancel', handleLongPressPointerCancel);
         renderer.domElement.removeEventListener('dblclick', handleDoubleClick);
+      }
+      if (wheelEndTimerRef.current) {
+        clearTimeout(wheelEndTimerRef.current);
+        wheelEndTimerRef.current = null;
       }
       clearLongPressTimer();
       document.removeEventListener('keydown', handleKeydown);
@@ -735,7 +896,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       unregisterTapListener();
     };
-  }, [viewerReady, addLog, togglePanel, setAnchorState, panelOpen, assetSidebarOpen, slideshowPlaying, metadataMissing, customMetadataAvailable, toggleViewerControlsDimmed, handleResetView]);
+  }, [viewerReady, addLog, togglePanel, setAnchorState, panelOpen, assetSidebarOpen, metadataMissing, customMetadataAvailable, toggleViewerControlsDimmed, handleResetView]);
 
   useEffect(() => {
     const viewerEl = viewerRef.current;

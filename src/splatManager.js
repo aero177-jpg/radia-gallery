@@ -6,6 +6,7 @@
 
 import { scene, THREE } from "./viewer.js";
 import { getFormatHandler } from "./formats/index.js";
+import { DEFAULT_AUTO_ORBIT_SETTINGS, getAutoOrbitParameters, normalizeAutoOrbitSettings } from './autoOrbitConfig.js';
 
 let splatGroup = null;
 const cache = new Map();
@@ -142,6 +143,9 @@ const createEntry = async (asset) => {
     if (sourceMetadata.customAnimation && !storedSettings.customAnimation) {
       storedSettings.customAnimation = sourceMetadata.customAnimation;
     }
+    if (sourceMetadata.autoOrbit && !storedSettings.autoOrbit) {
+      storedSettings.autoOrbit = sourceMetadata.autoOrbit;
+    }
     if (typeof sourceMetadata.annotation === 'string' && storedSettings.annotation === undefined) {
       storedSettings.annotation = sourceMetadata.annotation;
     }
@@ -226,9 +230,44 @@ export const clearCustomAnimationInCache = (assetId) => {
   if (!assetId || !cache.has(assetId)) return;
   const entry = cache.get(assetId);
   if (!entry) return;
+  const legacyAutoOrbit = entry.storedSettings?.customAnimation?.autoOrbit;
   if (entry.storedSettings && entry.storedSettings.customAnimation !== undefined) {
     delete entry.storedSettings.customAnimation;
   }
+  if (legacyAutoOrbit && !entry.storedSettings.autoOrbit) {
+    entry.storedSettings.autoOrbit = normalizeAutoOrbitSettings(legacyAutoOrbit);
+  }
+};
+
+export const updateAutoOrbitInCache = (assetId, settings) => {
+  if (!assetId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  const current = entry.storedSettings.autoOrbit
+    || entry.storedSettings.customAnimation?.autoOrbit
+    || DEFAULT_AUTO_ORBIT_SETTINGS;
+  entry.storedSettings.autoOrbit = normalizeAutoOrbitSettings({
+    ...current,
+    ...(settings || {}),
+  });
+};
+
+export const updateViewAutoOrbitInCache = (assetId, viewId, settings) => {
+  if (!assetId || !viewId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  if (!entry.storedSettings.viewCustomAnimations) {
+    entry.storedSettings.viewCustomAnimations = {};
+  }
+
+  const previousViewSettings = entry.storedSettings.viewCustomAnimations[viewId] || {};
+  const current = previousViewSettings.autoOrbit || DEFAULT_AUTO_ORBIT_SETTINGS;
+  entry.storedSettings.viewCustomAnimations[viewId] = {
+    ...previousViewSettings,
+    autoOrbit: getAutoOrbitParameters({ ...current, ...(settings || {}) }),
+  };
 };
 
 export const updateViewCustomAnimationInCache = (assetId, viewId, customAnimation) => {
@@ -251,7 +290,14 @@ export const clearViewCustomAnimationInCache = (assetId, viewId) => {
   if (!assetId || !viewId || !cache.has(assetId)) return;
   const entry = cache.get(assetId);
   if (!entry?.storedSettings?.viewCustomAnimations) return;
-  delete entry.storedSettings.viewCustomAnimations[viewId];
+  const previousViewSettings = entry.storedSettings.viewCustomAnimations[viewId];
+  if (previousViewSettings?.autoOrbit) {
+    entry.storedSettings.viewCustomAnimations[viewId] = {
+      autoOrbit: previousViewSettings.autoOrbit,
+    };
+  } else {
+    delete entry.storedSettings.viewCustomAnimations[viewId];
+  }
 };
 
 export const updateAnnotationInCache = (assetId, annotation) => {

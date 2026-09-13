@@ -292,6 +292,7 @@ export const useStore = create(
   // Camera settings
   fov: 60,
   cameraRange: 8,
+  cameraMovementSpeed: 'default',
   dollyZoomEnabled: true,
   viewerFovSlider: false,
   stereoEnabled: false,
@@ -318,6 +319,7 @@ export const useStore = create(
   slideshowHold: false,
   slideshowHoldWasPlaying: false,
   slideshowPlaying: false,
+  autoOrbitPlaying: false,
   viewerControlsDimmed: false,
   
   // Custom animation settings (used when intensity is 'custom')
@@ -336,6 +338,12 @@ export const useStore = create(
     transitionRange: 'default',
     zoomProfile: 'default',
     dollyZoom: false,
+    autoOrbit: {
+      enabled: false,
+      mode: 'orbit',
+      speed: 'medium',
+      path: '360-clockwise',
+    },
   },
   // Per-file annotation text (stored in IndexedDB file-settings)
   annotation: '',
@@ -351,8 +359,10 @@ export const useStore = create(
   metadataMissing: false,
   customMetadataAvailable: false,
   customMetadataControlsVisible: false,
+  isCustomModel: false,
   customModelScale: 1,
   customBaseOrientation: 'y-down',
+  customModelRotation: { x: 0, y: 0, z: 0 },
   customAspectRatio: 'full',
   // Show FPS counter overlay
   showFps: false,
@@ -422,6 +432,9 @@ export const useStore = create(
   
   /** Sets camera orbit range in degrees */
   setCameraRange: (range) => set({ cameraRange: range }),
+
+  /** Sets the base keyboard camera movement speed */
+  setCameraMovementSpeed: (speed) => set({ cameraMovementSpeed: speed }),
 
   /** Opens/closes the controls modal */
   setControlsModalOpen: (controlsModalOpen) => set({ controlsModalOpen }),
@@ -550,6 +563,9 @@ export const useStore = create(
   /** Sets slideshow playing state */
   setSlideshowPlaying: (playing) => set({ slideshowPlaying: playing }),
 
+  /** Tracks active custom-model auto orbit separately from slideshow playback */
+  setAutoOrbitPlaying: (playing) => set({ autoOrbitPlaying: Boolean(playing) }),
+
   /** Sets whether viewer-adjacent controls are dimmed */
   setViewerControlsDimmed: (dimmed) => set({ viewerControlsDimmed: Boolean(dimmed) }),
 
@@ -587,8 +603,22 @@ export const useStore = create(
   setMetadataMissing: (metadataMissing) => set({ metadataMissing }),
   setCustomMetadataAvailable: (customMetadataAvailable) => set({ customMetadataAvailable }),
   setCustomMetadataControlsVisible: (customMetadataControlsVisible) => set({ customMetadataControlsVisible }),
+  setIsCustomModel: (isCustomModel) => set({ isCustomModel }),
   setCustomModelScale: (customModelScale) => set({ customModelScale }),
   setCustomBaseOrientation: (customBaseOrientation) => set({ customBaseOrientation }),
+  setCustomModelRotation: (customModelRotation) => set((state) => ({
+    customModelRotation: {
+      ...state.customModelRotation,
+      ...Object.fromEntries(
+        Object.entries(customModelRotation || {}).map(([axis, value]) => [
+          axis,
+          Number.isFinite(Number(value))
+            ? Math.max(-100, Math.min(100, Number(value)))
+            : state.customModelRotation[axis],
+        ]),
+      ),
+    },
+  })),
   setCustomAspectRatio: (customAspectRatio) => set({ customAspectRatio }),
   
   /** Updates file info (merges with existing) */

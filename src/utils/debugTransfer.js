@@ -306,6 +306,9 @@ const sanitizeEmbedFileSettings = (record) => {
   if (record.customAnimation && typeof record.customAnimation === 'object') {
     next.customAnimation = record.customAnimation;
   }
+  if (record.autoOrbit && typeof record.autoOrbit === 'object') {
+    next.autoOrbit = record.autoOrbit;
+  }
   if (record.viewCustomAnimations && typeof record.viewCustomAnimations === 'object') {
     next.viewCustomAnimations = record.viewCustomAnimations;
   }

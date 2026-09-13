@@ -6,6 +6,8 @@
 
 import { getSupportedExtensions } from "./formats/index.js";
 import { useStore } from "./store.js";
+import { DEFAULT_AUTO_ORBIT_SETTINGS, normalizeAutoOrbitSettings } from './autoOrbitConfig.js';
+import { beginAutoOrbitTransition, cancelAutoOrbit, endAutoOrbitTransition, scheduleAutoOrbit } from './autoOrbit.js';
 import {
   scene,
   renderer,
@@ -185,6 +187,7 @@ const DEFAULT_FILE_CUSTOM_ANIMATION = {
   transitionRange: 'default',
   zoomProfile: 'default',
   dollyZoom: false,
+  autoOrbit: normalizeAutoOrbitSettings(),
 };
 const DEFAULT_FILE_ANNOTATION = '';
 
@@ -199,12 +202,14 @@ export const normalizeFileCustomAnimationSettings = (customAnimationSettings) =>
     ? customAnimationSettings.zoomProfile
     : 'default';
   const dollyZoom = customAnimationSettings?.dollyZoom === true;
+  const autoOrbit = normalizeAutoOrbitSettings(customAnimationSettings?.autoOrbit);
 
   return {
     slideType,
     transitionRange,
     zoomProfile,
     dollyZoom,
+    autoOrbit,
   };
 };
 
@@ -557,6 +562,24 @@ const resolveEffectiveCustomAnimation = (storedSettings, asset) => {
   return storedSettings?.customAnimation ?? null;
 };
 
+const resolveEffectiveAutoOrbitSettings = (storedSettings, asset) => {
+  const viewId = asset?.viewId;
+  const viewAutoOrbit = viewId
+    ? storedSettings?.viewCustomAnimations?.[viewId]?.autoOrbit
+    : null;
+  const baseAutoOrbit = storedSettings?.autoOrbit
+    || storedSettings?.customAnimation?.autoOrbit
+    || viewAutoOrbit
+    || DEFAULT_AUTO_ORBIT_SETTINGS;
+  const normalizedBase = normalizeAutoOrbitSettings(baseAutoOrbit);
+
+  return normalizeAutoOrbitSettings({
+    ...normalizedBase,
+    ...(viewAutoOrbit || {}),
+    enabled: normalizedBase.enabled,
+  });
+};
+
 /**
  * Resolves the effective custom VR view for an asset, checking per-view
  * overrides first, then falling back to the base file's customVrView.
@@ -601,11 +624,12 @@ export const hasSavedVrPivotOverrideForAsset = (asset) => {
     && entry.storedSettings.vrPivotLocalPoint.length === 3;
 };
 
-const syncStoredCustomAnimationSettings = (customAnimationSettings, store) => {
+const syncStoredCustomAnimationSettings = (customAnimationSettings, store, autoOrbitSettings) => {
   const normalized = normalizeFileCustomAnimationSettings(customAnimationSettings);
   store.setFileCustomAnimation({
     ...DEFAULT_FILE_CUSTOM_ANIMATION,
     ...normalized,
+    autoOrbit: normalizeAutoOrbitSettings(autoOrbitSettings ?? normalized.autoOrbit),
   });
 };
 
@@ -664,6 +688,8 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   if (!asset) return;
   const hasFileOrSource = asset.file || (asset.sourceId && asset._remoteAsset);
   if (!hasFileOrSource) return;
+
+  cancelAutoOrbit();
 
   // Stamp a generation so we can detect when a newer load has superseded this one
   const thisGeneration = ++loadGeneration;
@@ -775,6 +801,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   }
   
   store.setFileInfo({ name: asset.name });
+  cancelAutoOrbit();
 
   const wasImmersiveModeActive = immersiveActive;
   if (wasImmersiveModeActive) {
@@ -896,7 +923,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       });
 
     const { cameraMetadata, storedSettings, focusDistanceOverride, formatLabel } = entry;
-    const { views: customViews, selectedView } = await resolveAssetView(asset);
+    const { metadata: customMetadata, views: customViews, selectedView } = await resolveAssetView(asset);
 
     // Bail out if a newer load superseded this one while resolving views
     if (loadGeneration !== thisGeneration) return;
@@ -918,6 +945,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       applyCoordinateFlip: shouldApplyFlip,
       modelScale: selectedView?.model?.modelScale ?? 1,
       baseOrientation: selectedView?.model?.baseOrientation,
+      modelRotation: selectedView?.model?.modelRotation,
     };
 
     if (shouldApplyFlip || hasCustomMetadata) {
@@ -926,9 +954,12 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     }
 
     store.setCustomModelScale(modelOverrides.modelScale);
-  store.setCustomBaseOrientation(modelOverrides.baseOrientation ?? 'y-down');
+    store.setCustomBaseOrientation(modelOverrides.baseOrientation ?? 'y-down');
+    store.setCustomModelRotation(modelOverrides.modelRotation ?? { x: 0, y: 0, z: 0 });
 
     const metadataMissing = !cameraMetadata?.intrinsics && customViews.length === 0;
+    store.setIsCustomModel(!cameraMetadata?.intrinsics);
+    store.setCameraMovementSpeed(customMetadata?.cameraMovementSpeed ?? 'default');
     store.setMetadataMissing(metadataMissing);
     store.setCustomMetadataAvailable(customViews.length > 0);
     // Only change controls visibility when opening (metadata missing) or when
@@ -977,6 +1008,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     syncStoredCustomAnimationSettings(
       effectiveCustomAnimation,
       store,
+      resolveEffectiveAutoOrbitSettings(storedSettings, asset),
     );
     syncStoredAnnotation(
       storedSettings?.annotation,
@@ -1353,10 +1385,12 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     if (wasAlreadyCached) {
       viewerEl.classList.remove("loading");
       store.setIsLoading(false);
+      scheduleAutoOrbit();
     } else {
       requestAnimationFrame(() => {
         viewerEl.classList.remove("loading");
         store.setIsLoading(false);
+        scheduleAutoOrbit();
       });
     }
 
@@ -1707,21 +1741,37 @@ const forceViewInstancePostPoseRenderReflow = (label = 'view-instance') => {
 const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   if (!asset || !currentMesh) return false;
 
-  const store = getStoreState();
-  const { selectedView, views } = await resolveAssetView(asset);
-  if (!selectedView?.cameraPose) return false;
+  beginAutoOrbitTransition();
+
+  try {
+    const store = getStoreState();
+    const { selectedView, views } = await resolveAssetView(asset);
+    if (!selectedView?.cameraPose) return false;
 
   await syncAssetViewInstances({ store, currentAsset: asset, views });
 
   // ── VR fast-path: skip camera animations, resize, aspect ratio changes ──
   // In VR the model is manipulated directly, not the camera.
   if (store.vrSessionActive) {
+    applyCustomModelTransform(currentMesh, {
+      applyCoordinateFlip: true,
+      modelScale: selectedView?.model?.modelScale ?? 1,
+      baseOrientation: selectedView?.model?.baseOrientation,
+      modelRotation: selectedView?.model?.modelRotation,
+    });
+    store.setCustomModelScale(selectedView?.model?.modelScale ?? 1);
+    store.setCustomBaseOrientation(selectedView?.model?.baseOrientation ?? 'y-down');
+    store.setCustomModelRotation(selectedView?.model?.modelRotation ?? { x: 0, y: 0, z: 0 });
     // Sync per-view store state
     const activeCacheKeyForView = asset.cacheKey || getBaseAssetId(asset);
     const cacheEntryForView = getSplatCache().get(activeCacheKeyForView);
     if (cacheEntryForView) {
       const viewCustomAnimation = resolveEffectiveCustomAnimation(cacheEntryForView.storedSettings, asset);
-      syncStoredCustomAnimationSettings(viewCustomAnimation, store);
+      syncStoredCustomAnimationSettings(
+        viewCustomAnimation,
+        store,
+        resolveEffectiveAutoOrbitSettings(cacheEntryForView.storedSettings, asset),
+      );
     }
     store.setMetadataMissing(false);
     store.setCustomMetadataAvailable(true);
@@ -1749,9 +1799,11 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
     applyCoordinateFlip: true,
     modelScale: selectedView?.model?.modelScale ?? 1,
     baseOrientation: selectedView?.model?.baseOrientation,
+    modelRotation: selectedView?.model?.modelRotation,
   });
   store.setCustomModelScale(selectedView?.model?.modelScale ?? 1);
   store.setCustomBaseOrientation(selectedView?.model?.baseOrientation ?? 'y-down');
+  store.setCustomModelRotation(selectedView?.model?.modelRotation ?? { x: 0, y: 0, z: 0 });
 
   // Apply aspect ratio instantly – bypass the CSS transition so the viewer
   // snaps to the new size rather than animating width/height.
@@ -1798,7 +1850,11 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   const cacheEntryForView = getSplatCache().get(activeCacheKeyForView);
   if (cacheEntryForView) {
     const viewCustomAnimation = resolveEffectiveCustomAnimation(cacheEntryForView.storedSettings, asset);
-    syncStoredCustomAnimationSettings(viewCustomAnimation, store);
+    syncStoredCustomAnimationSettings(
+      viewCustomAnimation,
+      store,
+      resolveEffectiveAutoOrbitSettings(cacheEntryForView.storedSettings, asset),
+    );
   }
 
   store.setMetadataMissing(false);
@@ -1814,6 +1870,9 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   store.setStatus(`Loaded ${getBaseAssetName(asset)} view`);
   requestRender();
   return true;
+  } finally {
+    endAutoOrbitTransition();
+  }
 };
 
 /**
@@ -1827,15 +1886,19 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
  * @returns {Promise<Object|null>} handoff payload or null if view can't be resolved
  */
 export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = {}) => {
+  cancelAutoOrbit();
+
   const { selectedView, views } = await resolveAssetView(asset);
   if (!selectedView?.cameraPose) return null;
 
   const store = getStoreState();
   let nextAssetCustomAnimation = null;
+  let nextAssetAutoOrbit = null;
   let nextAssetAnnotation = null;
   try {
     const entry = await ensureSplatEntry(asset);
     nextAssetCustomAnimation = resolveEffectiveCustomAnimation(entry?.storedSettings, asset);
+    nextAssetAutoOrbit = resolveEffectiveAutoOrbitSettings(entry?.storedSettings, asset);
     nextAssetAnnotation = entry?.storedSettings?.annotation ?? null;
   } catch (err) {
     console.warn('[FileLoader] Failed to pre-resolve custom animation for handoff', err);
@@ -1863,7 +1926,7 @@ export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = 
     onApply: () => {
       const applyStore = getStoreState();
 
-      syncStoredCustomAnimationSettings(nextAssetCustomAnimation, applyStore);
+      syncStoredCustomAnimationSettings(nextAssetCustomAnimation, applyStore, nextAssetAutoOrbit);
       syncStoredAnnotation(nextAssetAnnotation, applyStore);
 
       // Model transform
@@ -1872,10 +1935,12 @@ export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = 
           applyCoordinateFlip: true,
           modelScale: selectedView?.model?.modelScale ?? 1,
           baseOrientation: selectedView?.model?.baseOrientation,
+          modelRotation: selectedView?.model?.modelRotation,
         });
       }
       applyStore.setCustomModelScale(selectedView?.model?.modelScale ?? 1);
       applyStore.setCustomBaseOrientation(selectedView?.model?.baseOrientation ?? 'y-down');
+      applyStore.setCustomModelRotation(selectedView?.model?.modelRotation ?? { x: 0, y: 0, z: 0 });
 
       // Aspect ratio – instant, no CSS transition
       const customAspectRatio = selectedView?.view?.aspectRatio ?? null;

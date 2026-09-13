@@ -23,10 +23,13 @@ const MAX_MODEL_SCALE = 10.0;
 const DEFAULT_MODEL_SCALE = 1.0;
 const DEFAULT_ASPECT_RATIO = null;
 const DEFAULT_BASE_ORIENTATION = 'y-down';
+const DEFAULT_MODEL_ROTATION = { x: 0, y: 0, z: 0 };
+const DEFAULT_CAMERA_MOVEMENT_SPEED = 'default';
 const DEFAULT_VIEW_ID = 'view-1';
 const CUSTOM_METADATA_SCHEMA_VERSION = 3;
 
 const BASE_ORIENTATIONS = new Set(['y-up', 'y-down', 'z-up', 'z-down']);
+const CAMERA_MOVEMENT_SPEEDS = new Set(['slower', 'default', 'faster']);
 
 /**
  * Clamp scale to valid range
@@ -46,6 +49,24 @@ const normalizeAspectRatio = (value) => {
 export const normalizeBaseOrientation = (value) => (
   BASE_ORIENTATIONS.has(value) ? value : DEFAULT_BASE_ORIENTATION
 );
+
+const normalizeCameraMovementSpeed = (value) => (
+  CAMERA_MOVEMENT_SPEEDS.has(value) ? value : DEFAULT_CAMERA_MOVEMENT_SPEED
+);
+
+const clampModelRotationValue = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(-100, Math.min(100, num));
+};
+
+export const normalizeModelRotation = (value) => ({
+  x: clampModelRotationValue(value?.x),
+  y: clampModelRotationValue(value?.y),
+  z: clampModelRotationValue(value?.z),
+});
+
+const modelRotationToRadians = (value) => (value / 100) * Math.PI;
 
 const getBaseOrientationRotationX = (orientation) => {
   switch (normalizeBaseOrientation(orientation)) {
@@ -115,7 +136,7 @@ const applyModelScale = (mesh, scale) => {
 };
 
 /**
- * Apply full custom transform: base orientation + scale
+ * Apply full custom transform: base orientation + rotation + scale
  */
 export const applyCustomModelTransform = (mesh, overrides = {}) => {
   if (!mesh) return;
@@ -142,6 +163,11 @@ export const applyCustomModelTransform = (mesh, overrides = {}) => {
   } else {
     mesh.userData.__cvToThreeApplied = false;
   }
+
+  const rotation = normalizeModelRotation(overrides.modelRotation);
+  mesh.rotateX(modelRotationToRadians(rotation.x));
+  mesh.rotateY(modelRotationToRadians(rotation.y));
+  mesh.rotateZ(modelRotationToRadians(rotation.z));
 
   // Apply scale
   const scale = clampScale(overrides.modelScale ?? DEFAULT_MODEL_SCALE);
@@ -237,6 +263,7 @@ export const captureCustomMetadataPayload = (overrides = {}) => {
       applyCoordinateFlip: true, // Always apply for non-ML Sharp splats
       modelScale: clampScale(overrides.modelScale ?? DEFAULT_MODEL_SCALE),
       baseOrientation: normalizeBaseOrientation(overrides.baseOrientation),
+      modelRotation: normalizeModelRotation(overrides.modelRotation ?? DEFAULT_MODEL_ROTATION),
     },
     savedAt: Date.now(),
   };
@@ -259,6 +286,7 @@ const normalizeViewRecord = (view, fallbackId) => {
       applyCoordinateFlip: view?.model?.applyCoordinateFlip !== false,
       modelScale: clampScale(view?.model?.modelScale ?? DEFAULT_MODEL_SCALE),
       baseOrientation: normalizeBaseOrientation(view?.model?.baseOrientation),
+      modelRotation: normalizeModelRotation(view?.model?.modelRotation),
     },
     savedAt: Number.isFinite(view.savedAt) ? view.savedAt : Date.now(),
   };
@@ -284,6 +312,7 @@ const normalizeLegacyMetadata = (metadata) => {
       version: CUSTOM_METADATA_SCHEMA_VERSION,
       activeViewId,
       views: normalizedViews,
+      cameraMovementSpeed: normalizeCameraMovementSpeed(metadata.cameraMovementSpeed),
       savedAt: Number.isFinite(metadata.savedAt) ? metadata.savedAt : Date.now(),
     };
   }
@@ -305,7 +334,18 @@ const normalizeLegacyMetadata = (metadata) => {
       version: CUSTOM_METADATA_SCHEMA_VERSION,
       activeViewId: legacyView.id,
       views: [legacyView],
+      cameraMovementSpeed: normalizeCameraMovementSpeed(metadata.cameraMovementSpeed),
       savedAt: legacyView.savedAt,
+    };
+  }
+
+  if (CAMERA_MOVEMENT_SPEEDS.has(metadata.cameraMovementSpeed)) {
+    return {
+      version: CUSTOM_METADATA_SCHEMA_VERSION,
+      activeViewId: null,
+      views: [],
+      cameraMovementSpeed: normalizeCameraMovementSpeed(metadata.cameraMovementSpeed),
+      savedAt: Number.isFinite(metadata.savedAt) ? metadata.savedAt : Date.now(),
     };
   }
 
@@ -324,6 +364,7 @@ const updateMetadataViews = (record, updater) => {
     version: CUSTOM_METADATA_SCHEMA_VERSION,
     activeViewId: DEFAULT_VIEW_ID,
     views: [],
+    cameraMovementSpeed: DEFAULT_CAMERA_MOVEMENT_SPEED,
     savedAt: Date.now(),
   };
 
@@ -462,6 +503,24 @@ export const saveCustomMetadataViewForAsset = async (assetName, payload, options
     viewId: nextMetadata?.activeViewId || null,
     metadata: nextMetadata,
   };
+};
+
+export const saveCustomCameraMovementSpeedForAsset = async (assetName, speed) => {
+  if (!assetName) return false;
+
+  const existing = await loadCustomMetadata(assetName);
+  const normalized = normalizeLegacyMetadata(existing) || {
+    version: CUSTOM_METADATA_SCHEMA_VERSION,
+    activeViewId: null,
+    views: [],
+    savedAt: Date.now(),
+  };
+
+  return writeNormalizedMetadata(assetName, {
+    ...normalized,
+    cameraMovementSpeed: normalizeCameraMovementSpeed(speed),
+    savedAt: Date.now(),
+  });
 };
 
 export const addCustomMetadataViewForAsset = async (assetName, payload, options = {}) => {

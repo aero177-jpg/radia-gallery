@@ -5,10 +5,11 @@
 
 import { useCallback } from 'preact/hooks';
 import { useStore } from '../store';
-import { saveCustomAnimationSettings, saveViewCustomAnimationSettings } from '../fileStorage';
-import { updateCustomAnimationInCache, clearCustomAnimationInCache, updateViewCustomAnimationInCache, clearViewCustomAnimationInCache } from '../splatManager';
+import { saveAutoOrbitSettings, saveCustomAnimationSettings, saveViewAutoOrbitSettings, saveViewCustomAnimationSettings } from '../fileStorage';
+import { getSplatCache, updateAutoOrbitInCache, updateCustomAnimationInCache, clearCustomAnimationInCache, updateViewAutoOrbitInCache, updateViewCustomAnimationInCache, clearViewCustomAnimationInCache } from '../splatManager';
 import { setLoopSceneEnabled } from '../slideshowController';
 import Modal from './Modal';
+import { AUTO_ORBIT_MODE_OPTIONS, AUTO_ORBIT_PATH_OPTIONS, AUTO_ORBIT_SPEED_OPTIONS, getAutoOrbitParameters, normalizeAutoOrbitSettings } from '../autoOrbitConfig';
 
 const SLIDE_MODE_OPTIONS = [
   { value: 'horizontal', label: 'Horizontal' },
@@ -69,6 +70,35 @@ const buildCustomAnimationPayload = (settings) => {
   return payload;
 };
 
+const AutoOrbitFields = ({ settings, onChange }) => (
+  <>
+    <div class="control-row select-row">
+      <span class="control-label">Mode</span>
+      <select value={settings.mode} onChange={(e) => onChange({ mode: e.target.value })}>
+        {AUTO_ORBIT_MODE_OPTIONS.map(({ value, label }) => (
+          <option key={value} value={value}>{label}</option>
+        ))}
+      </select>
+    </div>
+    <div class="control-row select-row">
+      <span class="control-label">Speed</span>
+      <select value={settings.speed} onChange={(e) => onChange({ speed: e.target.value })}>
+        {AUTO_ORBIT_SPEED_OPTIONS.map(({ value, label }) => (
+          <option key={value} value={value}>{label}</option>
+        ))}
+      </select>
+    </div>
+    <div class="control-row select-row">
+      <span class="control-label">Path</span>
+      <select value={settings.path} onChange={(e) => onChange({ path: e.target.value })}>
+        {AUTO_ORBIT_PATH_OPTIONS.map(({ value, label }) => (
+          <option key={value} value={value}>{label}</option>
+        ))}
+      </select>
+    </div>
+  </>
+);
+
 function SlideshowOptionsModal({ isOpen, onClose }) {
   const slideMode = useStore((state) => state.slideMode);
   const continuousMotionSize = useStore((state) => state.continuousMotionSize);
@@ -78,6 +108,7 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
   const slideshowDuration = useStore((state) => state.slideshowDuration);
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
+  const isCustomModel = useStore((state) => state.isCustomModel);
   const fileCustomAnimation = useStore((state) => state.fileCustomAnimation);
   const currentFileName = useStore((state) => state.fileInfo?.name);
 
@@ -87,6 +118,27 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
   const setSlideshowContinuousModeStore = useStore((state) => state.setSlideshowContinuousMode);
   const setSlideshowDurationStore = useStore((state) => state.setSlideshowDuration);
   const setFileCustomAnimation = useStore((state) => state.setFileCustomAnimation);
+
+  const autoOrbitSettings = normalizeAutoOrbitSettings(fileCustomAnimation?.autoOrbit);
+  const currentAsset = assets?.[currentAssetIndex];
+  const currentViewId = currentAsset?.isViewInstance && currentAsset?.viewId
+    ? currentAsset.viewId
+    : null;
+  const cacheKeyId = currentAsset?.cacheKey || currentAsset?.baseAssetId || currentAsset?.id;
+  const storedSettings = getSplatCache().get(cacheKeyId)?.storedSettings;
+  const baseAutoOrbitSettings = normalizeAutoOrbitSettings(
+    storedSettings?.autoOrbit
+      || storedSettings?.customAnimation?.autoOrbit
+      || autoOrbitSettings,
+  );
+  const viewAutoOrbitOverride = currentViewId
+    ? storedSettings?.viewCustomAnimations?.[currentViewId]?.autoOrbit
+    : null;
+  const viewAutoOrbitSettings = normalizeAutoOrbitSettings({
+    ...baseAutoOrbitSettings,
+    ...(viewAutoOrbitOverride || {}),
+    enabled: baseAutoOrbitSettings.enabled,
+  });
 
   const handleContinuousDurationChange = useCallback((e) => {
     const value = Number(e.target.value) + 1;
@@ -130,6 +182,59 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
       }
     }
   }, [setFileCustomAnimation, currentFileName, assets, currentAssetIndex]);
+
+  const persistGeneralAutoOrbitSettings = useCallback((changes) => {
+    const nextAutoOrbit = normalizeAutoOrbitSettings({
+      ...baseAutoOrbitSettings,
+      ...changes,
+    });
+    setFileCustomAnimation({
+      autoOrbit: normalizeAutoOrbitSettings({
+        ...nextAutoOrbit,
+        ...(viewAutoOrbitOverride || {}),
+        enabled: nextAutoOrbit.enabled,
+      }),
+    });
+    const baseName = currentAsset?.baseAssetName || currentFileName;
+    const orbitParameters = getAutoOrbitParameters(nextAutoOrbit);
+
+    if (baseName && baseName !== '-') {
+      saveAutoOrbitSettings(baseName, orbitParameters).catch(err => {
+        console.warn('Failed to save auto orbit settings:', err);
+      });
+    }
+
+    if (cacheKeyId) {
+      updateAutoOrbitInCache(cacheKeyId, orbitParameters);
+    }
+  }, [baseAutoOrbitSettings, cacheKeyId, currentAsset, currentFileName, setFileCustomAnimation, viewAutoOrbitOverride]);
+
+  const persistViewAutoOrbitSettings = useCallback((changes) => {
+    if (!currentViewId) return;
+
+    const nextAutoOrbit = getAutoOrbitParameters({
+      ...viewAutoOrbitSettings,
+      ...changes,
+    });
+    setFileCustomAnimation({
+      autoOrbit: normalizeAutoOrbitSettings({
+        ...baseAutoOrbitSettings,
+        ...nextAutoOrbit,
+        enabled: baseAutoOrbitSettings.enabled,
+      }),
+    });
+
+    const baseName = currentAsset?.baseAssetName || currentFileName;
+    if (baseName && baseName !== '-') {
+      saveViewAutoOrbitSettings(baseName, currentViewId, nextAutoOrbit).catch(err => {
+        console.warn('Failed to save view auto orbit settings:', err);
+      });
+    }
+
+    if (cacheKeyId) {
+      updateViewAutoOrbitInCache(cacheKeyId, currentViewId, nextAutoOrbit);
+    }
+  }, [baseAutoOrbitSettings, cacheKeyId, currentAsset, currentFileName, currentViewId, setFileCustomAnimation, viewAutoOrbitSettings]);
 
   const handleZoomProfileChange = useCallback((e) => {
     const zoomProfile = e.target.value;
@@ -189,12 +294,42 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth={380} >
-      <div style={{ marginBottom: "5px" }}>
-        <h3 style={{ marginBottom: '0px' }}>Slideshow Options</h3>
-        <span class="tier-badge animate-opacity" style={{marginRight: "24px", opacity: hasFileSlideshowOverride ? 1 : 0 }}>Override Active</span>
-      </div>
-      <div class="settings-group" style={{ padding: '6px 2px' }}>
-        <div class="group-content" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {isCustomModel && autoOrbitSettings.enabled ? (
+        <>
+          <div style={{ marginBottom: "5px" }}>
+            <h3 style={{ marginBottom: '0px' }}>Auto Orbit Options</h3>
+          </div>
+          <div class="settings-group" style={{ padding: '6px 2px' }}>
+            <div class="group-content" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div class="settings-divider">
+                <span>General</span>
+              </div>
+              <AutoOrbitFields
+                settings={baseAutoOrbitSettings}
+                onChange={persistGeneralAutoOrbitSettings}
+              />
+              {currentViewId && (
+                <>
+                  <div class="settings-divider">
+                    <span>Custom view</span>
+                  </div>
+                  <AutoOrbitFields
+                    settings={viewAutoOrbitSettings}
+                    onChange={persistViewAutoOrbitSettings}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ marginBottom: "5px" }}>
+            <h3 style={{ marginBottom: '0px' }}>Slideshow Options</h3>
+            <span class="tier-badge animate-opacity" style={{marginRight: "24px", opacity: hasFileSlideshowOverride ? 1 : 0 }}>Override Active</span>
+          </div>
+          <div class="settings-group" style={{ padding: '6px 2px' }}>
+            <div class="group-content" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
           <div class="control-row select-row">
             <span class="control-label">Slide</span>
@@ -321,8 +456,11 @@ function SlideshowOptionsModal({ isOpen, onClose }) {
               </select>
             </div>
           )}
-        </div>
-      </div>
+
+            </div>
+          </div>
+        </>
+      )}
     </Modal>
   );
 }

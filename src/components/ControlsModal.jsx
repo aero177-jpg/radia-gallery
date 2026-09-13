@@ -123,13 +123,13 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Controls" isOpen={isControlsOpen}>
             <Section title="Desktop" isOpen={isSubsectionOpen('controls.desktop')}>
               <ul>
-                <li><strong>WASD QE:</strong> Navigate non ML-Sharp scenes. + <strong>shift</strong> to move faster.</li>
+                <li><strong>WASD QE:</strong> Navigate non ML-Sharp scenes. Hold <strong>Space</strong> to lock the camera: A/D orbit horizontally, Q/E orbit vertically, and W/S track forward/back parallel to the grid. + <strong>shift</strong> to move faster.</li>
                 <li><strong>Double click:</strong> Zoom/orbit around point (hit refresh to clear).</li>
                 <li><strong>Click-drag:</strong> Orbit.</li>
                 <li><strong>Right click-drag:</strong> Pan.</li>
                 <li><strong>Scroll:</strong> Zoom.</li>
                 <li><strong>Click:</strong> Interact with controls and viewer.</li>
-                <li><strong>Spacebar:</strong> Play / pause slideshow.</li>
+                <li><strong>Spacebar:</strong> Tap to play / pause slideshow; hold for camera lock.</li>
                 <li><strong>Tap:</strong> Pause slideshow, toggle UI.</li>
                 <li><strong>R key:</strong> Reset camera, or click focus icon in viewer.</li>
                 <li><strong>F11:</strong> Opens normal browser fullscreen. You can also use the fullscreen button in the viewer controls.</li>

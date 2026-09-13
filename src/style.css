@@ -1538,6 +1538,16 @@ input[type="checkbox"]:disabled:checked {
   gap: 8px;
 }
 
+.auto-orbit-options .control-track {
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.auto-orbit-options .quality-select {
+  min-width: 0;
+  width: calc((100% - 10px) / 3);
+}
+
 .settings-footer .secondary {
   width: 100%;
 }
@@ -4727,6 +4737,78 @@ background: #3e576c52;
 
 .custom-metadata-section input[type="range"] {
   width: 120px;
+}
+
+.model-rotation-section {
+  margin: 12px 0;
+  border-top: 1px solid rgba(110, 180, 255, 0.18);
+  border-bottom: 1px solid rgba(110, 180, 255, 0.18);
+}
+
+.model-rotation-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 0;
+  border: 0;
+  background: transparent;
+  color: rgb(170 188 202);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.model-rotation-toggle .chevron {
+  transition: transform 0.18s ease;
+}
+
+.model-rotation-toggle .chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.model-rotation-content {
+  padding-bottom: 4px;
+}
+
+.model-rotation-snap-btn {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.model-rotation-track {
+  min-width: 190px;
+  justify-content: flex-end;
+}
+
+.model-rotation-input {
+  width: 58px;
+  box-sizing: border-box;
+  padding: 4px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  color: #e6ecf8;
+  font: inherit;
+  text-align: right;
+}
+
+.model-rotation-input:focus {
+  outline: 1px solid rgba(110, 231, 255, 0.7);
+  border-color: rgba(110, 231, 255, 0.7);
+}
+
+.custom-metadata-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.custom-metadata-actions .secondary,
+.custom-metadata-actions .primary-button {
+  width: 100%;
+  margin: 0;
 }
 
 .clear-custom-row {
