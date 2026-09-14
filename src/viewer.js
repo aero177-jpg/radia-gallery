@@ -159,6 +159,8 @@ const ensureStereoCamera = () => {
   if (stereoCamera) return;
   stereoCamera = new THREE.StereoCamera();
   stereoCamera.aspect = 0.5; // Default for side-by-side (each eye gets half width)
+  stereoCamera.cameraL.matrixWorldAutoUpdate = false;
+  stereoCamera.cameraR.matrixWorldAutoUpdate = false;
 };
 
 export const setStereoEffectEnabled = (enabled) => {

@@ -638,16 +638,29 @@ const syncStoredAnnotation = (annotation, store) => {
   store.setAnnotation(typeof normalized === 'string' ? normalized : DEFAULT_FILE_ANNOTATION);
 };
 
-const refreshSparkForCurrentView = (reason = 'unspecified') => {
+const refreshSparkForCurrentView = async (reason = 'unspecified', { waitForIdle = false } = {}) => {
   if (!spark?.update || !camera) return;
 
   camera?.updateMatrix?.();
   camera?.updateMatrixWorld?.(true);
 
-  const update = spark.update({ scene, camera });
-  update?.catch?.((error) => {
+  const restoreAutoUpdate = waitForIdle ? spark.autoUpdate : null;
+  if (waitForIdle) {
+    spark.autoUpdate = false;
+  }
+
+  try {
+    while (waitForIdle && spark.sorting) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    await spark.update({ scene, camera });
+  } catch (error) {
     console.warn(`[fileLoader] Spark update failed (${reason})`, error);
-  });
+  } finally {
+    if (waitForIdle) {
+      spark.autoUpdate = restoreAutoUpdate;
+    }
+  }
 };
 
 
@@ -905,7 +918,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       commitSlideshowTransition(slideshowTransitionId, { phase: 'asset-activated' });
     }
     viewerEl.classList.add("has-mesh");
-    refreshSparkForCurrentView('asset activation');
+    if (!shouldRunTransition) {
+      refreshSparkForCurrentView('asset activation');
+    }
 
     // Fire-and-forget neighbor preloading (don't block current asset)
     const neighborIds = new Set(neighborAssets.map((neighbor) => neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id));
@@ -950,7 +965,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
     if (shouldApplyFlip || hasCustomMetadata) {
       applyCustomModelTransform(entry.mesh, modelOverrides);
-      refreshSparkForCurrentView('model transform');
+      if (!shouldRunTransition) {
+        refreshSparkForCurrentView('model transform');
+      }
     }
 
     store.setCustomModelScale(modelOverrides.modelScale);
@@ -1101,6 +1118,11 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         refreshSparkForCurrentView('post-camera-cached-custom-view');
         forceViewInstancePostPoseRenderReflow('post-camera-cached-custom-view');
       }
+
+      if (shouldRunTransition) {
+        await refreshSparkForCurrentView('transition-ready-cached', { waitForIdle: true });
+        if (loadGeneration !== thisGeneration) return;
+      }
       
       // Apply background BEFORE slideIn so it fades in sync with canvas
       if (asset.preview) {
@@ -1197,6 +1219,11 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       if (hasCustomMetadata && !cameraMetadata?.intrinsics) {
         refreshSparkForCurrentView('post-camera-custom-view');
         forceViewInstancePostPoseRenderReflow('post-camera-custom-view');
+      }
+
+      if (shouldRunTransition) {
+        await refreshSparkForCurrentView('transition-ready', { waitForIdle: true });
+        if (loadGeneration !== thisGeneration) return;
       }
       
       // Apply background BEFORE slideIn so it fades in sync with canvas
