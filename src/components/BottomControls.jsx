@@ -13,7 +13,7 @@ import { resetViewWithImmersive } from '../cameraUtils';
 import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
 import { resetSplatManager, updateAnnotationInCache } from '../splatManager';
 import { saveAnnotation } from '../fileStorage';
-import { initVrSupport } from '../vrMode';
+import { initVrSupport, disposeVrSupport } from '../vrMode';
 import useHasMesh from '../utils/useHasMesh';
 import useFullscreenControls from '../utils/useFullscreenControls';
 import useControlsReveal from '../utils/useControlsReveal';
@@ -72,6 +72,7 @@ function BottomControls({ onOpenSlideshowOptions }) {
     const viewerEl = document.getElementById('viewer');
     if (!viewerEl) return;
 
+    if (!await disposeVrSupport()) return;
     resetViewer(viewerEl, { preserveBackground: true });
     resetSplatManager();
     void initVrSupport(viewerEl);

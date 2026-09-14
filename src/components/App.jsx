@@ -11,12 +11,12 @@ import TitleCard from './TitleCard';
 import SidePanel from './SidePanel';
 import MobileSheet from './MobileSheet';
 import AssetSidebar from './AssetSidebar';
-import { initViewer, startRenderLoop, requestRender } from '../viewer';
+import { initViewer, startRenderLoop, requestRender, suspendRenderLoop } from '../viewer';
 import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset } from '../fileLoader';
 import { resetViewWithImmersive } from '../cameraUtils';
 import useOutsideClick from '../utils/useOutsideClick';
 
-import { initVrSupport } from '../vrMode';
+import { initVrSupport, disposeVrSupport } from '../vrMode';
 import { loadR2Settings } from '../storage/r2Settings.js';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import ControlsModal from './ControlsModal';
@@ -359,6 +359,8 @@ function App() {
     
     return () => {
       window.removeEventListener('resize', resize);
+      void disposeVrSupport();
+      suspendRenderLoop();
     };
   }, []);
 

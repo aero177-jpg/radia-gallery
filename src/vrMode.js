@@ -99,6 +99,8 @@ let lastPivotSaveMs = 0;
 let leftTriggerWasPressed = false;
 
 let vrSupportCheckPromise = null;
+let vrInitializationPromise = null;
+let vrLifecycleVersion = 0;
 let preVrCameraNear = null;
 let preVrCameraFar = null;
 let activeVrBaseAssetId = null;
@@ -1031,40 +1033,68 @@ const attachSessionListeners = () => {
 };
 
 export const initVrSupport = async (containerEl) => {
-  const store = useStore.getState();
+  if (!renderer) return null;
+  if (vrInitializationPromise) return vrInitializationPromise;
+  if (sparkXr) return vrButton;
 
-  if (!renderer || sparkXr) return vrButton;
+  const initialization = initializeVrSupport(vrLifecycleVersion);
+  vrInitializationPromise = initialization;
+  try {
+    return await initialization;
+  } finally {
+    if (vrInitializationPromise === initialization) {
+      vrInitializationPromise = null;
+    }
+  }
+};
+
+const initializeVrSupport = async (lifecycleVersion) => {
+  const store = useStore.getState();
+  const xrRenderer = renderer;
+  const isCurrent = () => lifecycleVersion === vrLifecycleVersion && xrRenderer === renderer;
 
   if (!vrSupportCheckPromise) {
     vrSupportCheckPromise = checkVrSupport();
   }
 
   const support = await vrSupportCheckPromise;
-  if (!support?.ok) {
+  if (!support?.ok || !isCurrent()) {
     return null;
   }
 
   try {
+    let instance;
     const supported = await new Promise((resolve) => {
-      sparkXr = new SparkXr({
-        renderer,
+      instance = new SparkXr({
+        renderer: xrRenderer,
+        element: document.createElement("button"),
         mode: "vr",
         referenceSpaceType: "local-floor",
         sessionInit: {
           optionalFeatures: ["hand-tracking"],
         },
         onReady: resolve,
+        onEnterXr: () => {
+          if (!isCurrent()) {
+            xrRenderer.setAnimationLoop(null);
+            void xrRenderer.xr.getSession()?.end().catch((err) => {
+              console.warn("Failed to end stale VR session:", err);
+            });
+          }
+        },
       });
     });
 
+    if (!isCurrent()) return null;
     if (!supported) {
-      sparkXr = null;
       store.setVrSupported(false);
       return null;
     }
 
-    vrButton = sparkXr.element;
+    sparkXr = instance;
+    vrButton = instance.element;
   } catch (err) {
+    if (!isCurrent()) return null;
     sparkXr = null;
     vrButton = null;
     console.warn("VR support initialization failed:", err);
@@ -1077,11 +1107,33 @@ export const initVrSupport = async (containerEl) => {
     return null;
   }
 
-  // Keep the SparkXr button hidden and enter sessions programmatically.
-  vrButton.style.display = "none";
   attachSessionListeners();
   store.setVrSupported(true);
   return vrButton;
+};
+
+export const disposeVrSupport = () => {
+  const xrRenderer = sparkXr?.renderer ?? renderer;
+  const session = xrRenderer?.xr.getSession();
+  vrLifecycleVersion += 1;
+  vrInitializationPromise = null;
+  reloadPageAfterVrExit = false;
+
+  if (xrRenderer === renderer && xrRenderer?.xr.isPresenting) {
+    handleSessionEnd();
+  }
+  xrRenderer?.xr.removeEventListener("sessionstart", handleSessionStart);
+  xrRenderer?.xr.removeEventListener("sessionend", handleSessionEnd);
+  xrRenderer?.setAnimationLoop(null);
+  sparkXr = null;
+  vrButton = null;
+  useStore.getState().setVrSupported(false);
+
+  if (!session) return Promise.resolve(true);
+  return session.end().then(() => true).catch((err) => {
+    console.warn("Failed to end VR session during cleanup:", err);
+    return false;
+  });
 };
 
 export const enterVrSession = async () => {
