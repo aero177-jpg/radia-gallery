@@ -81,6 +81,11 @@ const DEFAULT_UI_PREFS = {
   appBgColor: '#0c0d10',
   bgBlur: 40,
   disableTransparentUi: false,
+  vrBaseHeight: 0,
+  vrHorizontalOffset: 0,
+  vrBaseZoom: 0,
+  vrBaseScale: 0,
+  vrResolutionScale: 0.5,
   animation: {
     intensity: 'medium',
     direction: 'left',
@@ -117,6 +122,12 @@ const normalizeUiPrefs = (raw) => {
   if (typeof raw.disableTransparentUi === 'boolean') {
     prefs.disableTransparentUi = raw.disableTransparentUi;
   }
+
+  if (Number.isFinite(raw.vrBaseHeight)) prefs.vrBaseHeight = raw.vrBaseHeight;
+  if (Number.isFinite(raw.vrHorizontalOffset)) prefs.vrHorizontalOffset = raw.vrHorizontalOffset;
+  if (Number.isFinite(raw.vrBaseZoom)) prefs.vrBaseZoom = raw.vrBaseZoom;
+  if (Number.isFinite(raw.vrBaseScale)) prefs.vrBaseScale = raw.vrBaseScale;
+  if (Number.isFinite(raw.vrResolutionScale)) prefs.vrResolutionScale = raw.vrResolutionScale;
 
   if (raw.animation && typeof raw.animation === 'object') {
     const anim = {};
@@ -175,6 +186,24 @@ const persistUiPrefs = (state) => {
   if (typeof state.disableTransparentUi === 'boolean'
     && state.disableTransparentUi !== DEFAULT_UI_PREFS.disableTransparentUi) {
     prefs.disableTransparentUi = state.disableTransparentUi;
+  }
+
+  if (Number.isFinite(state.vrBaseHeight) && state.vrBaseHeight !== DEFAULT_UI_PREFS.vrBaseHeight) {
+    prefs.vrBaseHeight = state.vrBaseHeight;
+  }
+  if (Number.isFinite(state.vrHorizontalOffset)
+    && state.vrHorizontalOffset !== DEFAULT_UI_PREFS.vrHorizontalOffset) {
+    prefs.vrHorizontalOffset = state.vrHorizontalOffset;
+  }
+  if (Number.isFinite(state.vrBaseZoom) && state.vrBaseZoom !== DEFAULT_UI_PREFS.vrBaseZoom) {
+    prefs.vrBaseZoom = state.vrBaseZoom;
+  }
+  if (Number.isFinite(state.vrBaseScale) && state.vrBaseScale !== DEFAULT_UI_PREFS.vrBaseScale) {
+    prefs.vrBaseScale = state.vrBaseScale;
+  }
+  if (Number.isFinite(state.vrResolutionScale)
+    && state.vrResolutionScale !== DEFAULT_UI_PREFS.vrResolutionScale) {
+    prefs.vrResolutionScale = state.vrResolutionScale;
   }
 
   if (state.animationIntensity && state.animationIntensity !== DEFAULT_UI_PREFS.animation.intensity) {
@@ -408,6 +437,11 @@ export const useStore = create(
   appBgColor: persistedUiPrefs.appBgColor ?? '#0c0d10',
   bgBlur: persistedUiPrefs.bgBlur ?? 40,
   disableTransparentUi: persistedUiPrefs.disableTransparentUi ?? false,
+  vrBaseHeight: persistedUiPrefs.vrBaseHeight ?? 0,
+  vrHorizontalOffset: persistedUiPrefs.vrHorizontalOffset ?? 0,
+  vrBaseZoom: persistedUiPrefs.vrBaseZoom ?? 0,
+  vrBaseScale: persistedUiPrefs.vrBaseScale ?? 0,
+  vrResolutionScale: persistedUiPrefs.vrResolutionScale ?? 0.5,
   fillMode: false,
   
   // Debug
@@ -482,6 +516,42 @@ export const useStore = create(
   setVrPivotStatusMessage: (vrPivotStatusMessage) => set({
     vrPivotStatusMessage: typeof vrPivotStatusMessage === 'string' ? vrPivotStatusMessage : '',
   }),
+
+  setVrBaseHeight: (vrBaseHeight) => {
+    const value = Number(vrBaseHeight);
+    if (!Number.isFinite(value)) return;
+    set({ vrBaseHeight: value });
+    persistUiPrefs({ ...get(), vrBaseHeight: value });
+  },
+
+  setVrHorizontalOffset: (vrHorizontalOffset) => {
+    const value = Number(vrHorizontalOffset);
+    if (!Number.isFinite(value)) return;
+    set({ vrHorizontalOffset: value });
+    persistUiPrefs({ ...get(), vrHorizontalOffset: value });
+  },
+
+  setVrBaseZoom: (vrBaseZoom) => {
+    const value = Number(vrBaseZoom);
+    if (!Number.isFinite(value)) return;
+    set({ vrBaseZoom: value });
+    persistUiPrefs({ ...get(), vrBaseZoom: value });
+  },
+
+  setVrBaseScale: (vrBaseScale) => {
+    const value = Number(vrBaseScale);
+    if (!Number.isFinite(value)) return;
+    set({ vrBaseScale: value });
+    persistUiPrefs({ ...get(), vrBaseScale: value });
+  },
+
+  setVrResolutionScale: (vrResolutionScale) => {
+    const value = Number(vrResolutionScale);
+    if (!Number.isFinite(value)) return;
+    const clamped = Math.min(Math.max(value, 0.3), 1);
+    set({ vrResolutionScale: clamped });
+    persistUiPrefs({ ...get(), vrResolutionScale: clamped });
+  },
 
   /** Deprecated: toggles legacy fill-to-screen projection vs fit-to-bounds */
   toggleFillMode: () => set((state) => ({ fillMode: !state.fillMode })),

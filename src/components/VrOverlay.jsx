@@ -31,6 +31,7 @@ import {
   getCurrentVrFarClip,
   getCurrentVrModelTransform,
   getCurrentVrNearClip,
+  refreshVrBaseCalibration,
   setCurrentVrFarClip,
   setCurrentVrNearClip,
 } from '../vrMode';
@@ -112,6 +113,16 @@ function VrOverlay() {
   const setPanelOpen = useStore((state) => state.setPanelOpen);
   const openControlsModalWithSections = useStore((state) => state.openControlsModalWithSections);
   const vrPivotStatusMessage = useStore((state) => state.vrPivotStatusMessage);
+  const vrBaseHeight = useStore((state) => state.vrBaseHeight);
+  const vrHorizontalOffset = useStore((state) => state.vrHorizontalOffset);
+  const vrBaseZoom = useStore((state) => state.vrBaseZoom);
+  const vrBaseScale = useStore((state) => state.vrBaseScale);
+  const vrResolutionScale = useStore((state) => state.vrResolutionScale);
+  const setVrBaseHeight = useStore((state) => state.setVrBaseHeight);
+  const setVrHorizontalOffset = useStore((state) => state.setVrHorizontalOffset);
+  const setVrBaseZoom = useStore((state) => state.setVrBaseZoom);
+  const setVrBaseScale = useStore((state) => state.setVrBaseScale);
+  const setVrResolutionScale = useStore((state) => state.setVrResolutionScale);
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
   const [vrNearClip, setVrNearClip] = useState(() => getCurrentVrNearClip());
   const [vrFarClip, setVrFarClip] = useState(() => getCurrentVrFarClip());
@@ -182,6 +193,13 @@ function VrOverlay() {
       'troubleshooting.vr',
     ]);
   }, [openControlsModalWithSections]);
+
+  const updateVrCalibration = useCallback((setValue, event) => {
+    const value = Number.parseFloat(event?.target?.value);
+    if (!Number.isFinite(value)) return;
+    setValue(value);
+    refreshVrBaseCalibration();
+  }, []);
 
   const persistVrNearClip = useCallback(async (nextNearClip) => {
     if (!currentAsset) return;
@@ -425,6 +443,96 @@ function VrOverlay() {
         </div>
 
         <div class="vr-overlay__slider-group">
+          <div class="vr-overlay__slider-row">
+            <div class="vr-overlay__slider-header">
+              <span class="vr-overlay__slider-label">Base height</span>
+              <span class="vr-overlay__slider-value">{vrBaseHeight.toFixed(2)}</span>
+            </div>
+            <input
+              class="vr-overlay__slider"
+              type="range"
+              min="-3"
+              max="3"
+              step="0.01"
+              value={vrBaseHeight}
+              onInput={(event) => updateVrCalibration(setVrBaseHeight, event)}
+              aria-label="VR base height"
+              title="Apply a global vertical offset to every VR scene"
+            />
+          </div>
+
+          <div class="vr-overlay__slider-row">
+            <div class="vr-overlay__slider-header">
+              <span class="vr-overlay__slider-label">Horizontal offset</span>
+              <span class="vr-overlay__slider-value">{vrHorizontalOffset.toFixed(2)}</span>
+            </div>
+            <input
+              class="vr-overlay__slider"
+              type="range"
+              min="-3"
+              max="3"
+              step="0.01"
+              value={vrHorizontalOffset}
+              onInput={(event) => updateVrCalibration(setVrHorizontalOffset, event)}
+              aria-label="VR horizontal offset"
+              title="Apply a global left or right offset to every VR scene"
+            />
+          </div>
+
+          <div class="vr-overlay__slider-row">
+            <div class="vr-overlay__slider-header">
+              <span class="vr-overlay__slider-label">Base zoom</span>
+              <span class="vr-overlay__slider-value">{vrBaseZoom.toFixed(2)}</span>
+            </div>
+            <input
+              class="vr-overlay__slider"
+              type="range"
+              min="-3"
+              max="3"
+              step="0.01"
+              value={vrBaseZoom}
+              onInput={(event) => updateVrCalibration(setVrBaseZoom, event)}
+              aria-label="VR base zoom"
+              title="Apply a global forward or backward offset to every VR scene"
+            />
+          </div>
+
+          <div class="vr-overlay__slider-row">
+            <div class="vr-overlay__slider-header">
+              <span class="vr-overlay__slider-label">Base scale</span>
+              <span class="vr-overlay__slider-value">{vrBaseScale.toFixed(2)}</span>
+            </div>
+            <input
+              class="vr-overlay__slider"
+              type="range"
+              min="-6"
+              max="6"
+              step="0.01"
+              value={vrBaseScale}
+              onInput={(event) => updateVrCalibration(setVrBaseScale, event)}
+              aria-label="VR base scale"
+              title="Apply a global scale adjustment to every VR scene"
+            />
+          </div>
+
+          <div class="vr-overlay__slider-row">
+            <div class="vr-overlay__slider-header">
+              <span class="vr-overlay__slider-label">XR resolution</span>
+              <span class="vr-overlay__slider-value">{vrResolutionScale.toFixed(2)}x</span>
+            </div>
+            <input
+              class="vr-overlay__slider"
+              type="range"
+              min="0.3"
+              max="1"
+              step="0.05"
+              value={vrResolutionScale}
+              onInput={(event) => setVrResolutionScale(event?.target?.value)}
+              aria-label="XR resolution scale"
+              title="Set XR render resolution for the next VR session; exit and re-enter to apply"
+            />
+          </div>
+
           <div class="vr-overlay__slider-row">
             <div class="vr-overlay__slider-header">
               <div class="vr-overlay__slider-title-row">

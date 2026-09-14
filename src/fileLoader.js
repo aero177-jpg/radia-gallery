@@ -875,7 +875,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
           const cache = getSplatCache();
           cache.forEach((cached, id) => {
-            cached.mesh.visible = id === activeCacheKey;
+            cached.mesh.visible = id === activeCacheKey && !store.vrSessionActive;
           });
           requestRender();
         }
@@ -904,7 +904,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
       const cache = getSplatCache();
       cache.forEach((cached, id) => {
-        cached.mesh.visible = id === activeCacheKey;
+        cached.mesh.visible = id === activeCacheKey && !store.vrSessionActive;
       });
       requestRender(); // Immediately render the new mesh
     }
@@ -1428,6 +1428,14 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
     if (store.vrSessionActive && onVrViewInstanceNavigated) {
       onVrViewInstanceNavigated(asset);
+    }
+
+    if (store.vrSessionActive) {
+      const cache = getSplatCache();
+      cache.forEach((cached, id) => {
+        cached.mesh.visible = id === activeCacheKey;
+      });
+      requestRender();
     }
 
     store.setStatus(loadedMessage);

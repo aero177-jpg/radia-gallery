@@ -196,7 +196,13 @@ No arbitrary throttle, forced synchronous Spark update, XR camera rewrite, or gl
 
 ## Results
 
-Current status: Part 1 implementation present, mock checks passed, build blocked by unavailable Vite; hardware validation outstanding. Parts 2/3 have source-backed leads only. This documentation pass changes no runtime code and adds no diagnostics. User's 30/50 FPS observations are from headset tools; exact tool/metric/runtime settings remain to be recorded.
+Current status: Part 1 implementation remains present; `npm run build` now succeeds. Part 2 was hardware-tuned without diagnostic capture: a one-time offset reference space maps the first XR viewer pose to the desktop camera position/yaw, preserving `local-floor` tracking. The app now provides global persisted VR calibration controls for base height, horizontal offset, depth zoom, scale, and XR resolution. Calibration is applied before an incoming VR asset is revealed, so scene navigation no longer visibly snaps from its uncalibrated transform. Exact headset/runtime configuration and first-frame pose measurements are still unrecorded.
+
+Part 3 live findings, reported from headset tools: increasing the XR resolution scale from the Spark default had little FPS impact; reducing splat size had some impact; looking away from the splat did not materially raise FPS; and the observed rate appears to track the total loaded splat count more than visible screen coverage. These findings make pure XR framebuffer fill-rate pressure unlikely as the dominant bottleneck, but do not distinguish Spark update/sort/accumulator work from runtime/compositor/streaming pacing. No application callback timing, layer dimensions, active-splat count, or GPU timing has yet been captured.
+
+Tested and reverted: `SparkRenderer.clipXY` was set to `1.0` (from its documented `1.4` default) to aggressively reject splat centers outside the lateral frustum. The headset result showed no FPS change, so the application has returned to Spark's default `clipXY`. Near/far VR clip controls are ordinary camera depth planes and are unrelated to this Spark lateral clipping experiment.
+
+Current production-affecting VR settings implementation: global calibration ranges are height/horizontal/depth `-3..+3` world units, logarithmic base scale `-6..+6` ($1/64x..64x$), and XR resolution `0.30x..1.00x`, applied on the next VR session. Scene-specific saved VR views remain separate from the global calibration. No performance improvement is claimed.
 
 ```text
 Pass / date / revision:

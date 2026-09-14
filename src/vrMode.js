@@ -32,6 +32,7 @@ let initialModelScale = null;
 let initialModelPosition = null;
 let initialModelQuaternion = null; // Store initial rotation
 let trueOriginalScale = null; // scale before VR baseline applied, for restoring on exit
+let trueOriginalPosition = null;
 let keyListenerAttached = false;
 let controller1 = null;
 let controller2 = null;
@@ -57,7 +58,6 @@ const AXIS_THUMBSTICK_X = 2;
 const AXIS_THUMBSTICK_Y = 3;
 
 // Tuning constants
-const VR_BASELINE_SCALE = 0.25; // initial VR scale multiplier for custom-metadata assets
 const SCALE_STEP = 1.5; // for button presses
 const MIN_SCALE = 0.02;
 const MAX_SCALE = 20.0;
@@ -106,6 +106,10 @@ let preVrCameraFar = null;
 let activeVrBaseAssetId = null;
 let activeVrSceneMode = null;
 let reloadPageAfterVrExit = false;
+let pendingVrOriginAlignment = null;
+let vrCalibrationRight = null;
+let vrCalibrationForward = null;
+let appliedVrBaseCalibration = { height: 0, horizontal: 0, zoom: 0, scale: 0 };
 
 const MIN_VR_NEAR_CLIP = 0.001;
 const MAX_VR_NEAR_CLIP = 1;
@@ -406,7 +410,9 @@ const restoreModelTransform = () => {
   } else if (currentMesh && initialModelScale) {
     currentMesh.scale.copy(initialModelScale);
   }
-  if (currentMesh && initialModelPosition) {
+  if (currentMesh && trueOriginalPosition) {
+    currentMesh.position.copy(trueOriginalPosition);
+  } else if (currentMesh && initialModelPosition) {
     currentMesh.position.copy(initialModelPosition);
   }
   if (currentMesh && initialModelQuaternion) {
@@ -417,6 +423,7 @@ const restoreModelTransform = () => {
   initialModelPosition = null;
   initialModelQuaternion = null;
   trueOriginalScale = null;
+  trueOriginalPosition = null;
 };
 
 const clearControllerSelection = (controller) => {
@@ -436,28 +443,65 @@ const resetVrInteractionState = () => {
   clearControllerSelection(controller2);
 };
 
+const applyVrBaseCalibration = () => {
+  if (!currentMesh) return;
+
+  const store = useStore.getState();
+  const height = THREE.MathUtils.clamp(Number(store.vrBaseHeight) || 0, -3, 3);
+  const horizontal = THREE.MathUtils.clamp(Number(store.vrHorizontalOffset) || 0, -3, 3);
+  const zoom = THREE.MathUtils.clamp(Number(store.vrBaseZoom) || 0, -3, 3);
+  const scale = THREE.MathUtils.clamp(Number(store.vrBaseScale) || 0, -6, 6);
+  const scaleRatio = (2 ** scale) / (2 ** appliedVrBaseCalibration.scale);
+  const heightDelta = height - appliedVrBaseCalibration.height;
+  const horizontalDelta = horizontal - appliedVrBaseCalibration.horizontal;
+  const zoomDelta = zoom - appliedVrBaseCalibration.zoom;
+
+  currentMesh.scale.multiplyScalar(scaleRatio);
+  currentMesh.position.y += heightDelta;
+  if (vrCalibrationRight) {
+    currentMesh.position.addScaledVector(vrCalibrationRight, horizontalDelta);
+  }
+  if (vrCalibrationForward) {
+    currentMesh.position.addScaledVector(vrCalibrationForward, zoomDelta);
+  }
+
+  if (initialModelScale) initialModelScale.multiplyScalar(scaleRatio);
+  if (initialModelPosition) {
+    initialModelPosition.y += heightDelta;
+    if (vrCalibrationRight) initialModelPosition.addScaledVector(vrCalibrationRight, horizontalDelta);
+    if (vrCalibrationForward) initialModelPosition.addScaledVector(vrCalibrationForward, zoomDelta);
+  }
+  appliedVrBaseCalibration = { height, horizontal, zoom, scale };
+  requestRender();
+};
+
+export const refreshVrBaseCalibration = () => {
+  if (!useStore.getState().vrSessionActive) return;
+  applyVrBaseCalibration();
+};
+
 const establishVrAssetBaseline = () => {
   const store = useStore.getState();
 
   resetVrInteractionState();
-  prepareVrCameraStart();
 
   if (!currentMesh) {
     initialModelScale = null;
     initialModelPosition = null;
     initialModelQuaternion = null;
     trueOriginalScale = null;
+    trueOriginalPosition = null;
     store.setVrModelScale(1);
     requestRender();
     return;
   }
 
   trueOriginalScale = currentMesh.scale.clone();
-  const baselineScaleMultiplier = store.customMetadataAvailable ? VR_BASELINE_SCALE : 1;
-  currentMesh.scale.copy(trueOriginalScale).multiplyScalar(baselineScaleMultiplier);
+  trueOriginalPosition = currentMesh.position.clone();
   initialModelScale = currentMesh.scale.clone();
   initialModelPosition = currentMesh.position.clone();
   initialModelQuaternion = currentMesh.quaternion.clone();
+  appliedVrBaseCalibration = { height: 0, horizontal: 0, zoom: 0, scale: 0 };
   const asset = store.currentAssetIndex >= 0 ? store.assets[store.currentAssetIndex] : null;
   activeVrPivotLocalPoint = getSavedVrPivotLocalPointForAsset(asset);
   store.setVrModelScale(1);
@@ -641,12 +685,95 @@ const removeHands = () => {
   }
 };
 
+const getYawOnlyQuaternion = (quaternion) => {
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion);
+  forward.y = 0;
+  if (forward.lengthSq() < 1e-6) return new THREE.Quaternion();
+  forward.normalize();
+  return new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), forward);
+};
+
+const captureVrOriginAlignmentTarget = () => {
+  if (!camera) {
+    pendingVrOriginAlignment = null;
+    return;
+  }
+
+  camera.updateWorldMatrix(true, false);
+  vrCalibrationRight = new THREE.Vector3(1, 0, 0)
+    .applyQuaternion(getYawOnlyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion())))
+    .normalize();
+  vrCalibrationForward = camera.getWorldDirection(new THREE.Vector3());
+  vrCalibrationForward.y = 0;
+  vrCalibrationForward.normalize();
+  pendingVrOriginAlignment = {
+    position: camera.getWorldPosition(new THREE.Vector3()),
+    quaternion: getYawOnlyQuaternion(camera.getWorldQuaternion(new THREE.Quaternion())),
+  };
+};
+
+const alignVrOriginToPreparedView = (xrFrame) => {
+  if (!pendingVrOriginAlignment || !xrFrame || !renderer) return false;
+
+  const baseReferenceSpace = renderer.xr.getReferenceSpace?.();
+  if (!baseReferenceSpace?.getOffsetReferenceSpace || typeof XRRigidTransform === "undefined") {
+    return false;
+  }
+
+  const viewerPose = xrFrame.getViewerPose(baseReferenceSpace);
+  const transform = viewerPose?.transform;
+  if (!transform) return false;
+
+  const rawPosition = new THREE.Vector3(
+    transform.position.x,
+    transform.position.y,
+    transform.position.z,
+  );
+  const rawQuaternion = getYawOnlyQuaternion(new THREE.Quaternion(
+    transform.orientation.x,
+    transform.orientation.y,
+    transform.orientation.z,
+    transform.orientation.w,
+  ));
+  const worldFromBaseQuaternion = pendingVrOriginAlignment.quaternion
+    .clone()
+    .multiply(rawQuaternion.invert());
+  const worldFromBasePosition = pendingVrOriginAlignment.position
+    .clone()
+    .sub(rawPosition.applyQuaternion(worldFromBaseQuaternion));
+  const offsetQuaternion = worldFromBaseQuaternion.clone().invert().normalize();
+  const offsetPosition = worldFromBasePosition
+    .applyQuaternion(offsetQuaternion)
+    .multiplyScalar(-1);
+
+  try {
+    const offsetSpace = baseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(
+      { x: offsetPosition.x, y: offsetPosition.y, z: offsetPosition.z },
+      {
+        x: offsetQuaternion.x,
+        y: offsetQuaternion.y,
+        z: offsetQuaternion.z,
+        w: offsetQuaternion.w,
+      },
+    ));
+    renderer.xr.setReferenceSpace(offsetSpace);
+    pendingVrOriginAlignment = null;
+    return true;
+  } catch (err) {
+    console.warn("Failed to align the VR origin to the prepared view:", err);
+    return false;
+  }
+};
+
 const setupVrAnimationLoop = () => {
   if (!renderer) return;
   let lastTime = performance.now();
   renderer.setAnimationLoop((time, xrFrame) => {
     const dt = Math.max(0.001, (time - lastTime) / 1000);
     lastTime = time;
+
+    // The following frame receives the aligned reference space for eyes and controllers.
+    if (alignVrOriginToPreparedView(xrFrame)) return;
 
     if (xrHands && xrHandMesh) {
       xrHands.update({ xr: renderer.xr, xrFrame });
@@ -665,8 +792,6 @@ const stopVrAnimationLoop = () => {
 };
 
 const performVrReset = () => {
-  restoreHomeView();
-  prepareVrCameraStart();
   if (initialModelPosition && currentMesh) {
     currentMesh.position.copy(initialModelPosition);
   }
@@ -870,46 +995,6 @@ const handleVrGamepadInput = (dt) => {
   }
 };
 
-const prepareVrCameraStart = () => {
-  if (!camera) return;
-  const store = useStore.getState();
-  const shouldUseGridEyeLevelStart = !store.metadataMissing && !store.customMetadataAvailable;
-
-  if (shouldUseGridEyeLevelStart) {
-    const target = controls?.target?.clone?.() ?? new THREE.Vector3();
-    const flatTarget = new THREE.Vector3(target.x, 0, target.z);
-    const offset = new THREE.Vector3().subVectors(camera.position, target);
-    const flatOffset = new THREE.Vector3(offset.x, 0, offset.z);
-
-    if (flatOffset.lengthSq() < 1e-6) {
-      camera.getWorldDirection(flatOffset);
-      flatOffset.y = 0;
-      flatOffset.multiplyScalar(-1);
-    }
-
-    const baseDist = flatOffset.length() || offset.length() || 1;
-    const dir = flatOffset.lengthSq() > 1e-6
-      ? flatOffset.normalize()
-      : new THREE.Vector3(0, 0, 1);
-    const startDist = baseDist * 1.2 + 0.5;
-
-    camera.position.copy(flatTarget).addScaledVector(dir, startDist);
-    camera.position.y = 0;
-    camera.lookAt(flatTarget);
-    camera.updateProjectionMatrix();
-    return;
-  }
-
-  const target = controls?.target?.clone?.() ?? new THREE.Vector3();
-  const offset = new THREE.Vector3().subVectors(camera.position, target);
-  const baseDist = offset.length() || 1;
-  const dir = offset.normalize();
-  const startDist = baseDist * 1.2 + 0.5;
-  camera.position.copy(target).addScaledVector(dir, startDist);
-  camera.lookAt(target);
-  camera.updateProjectionMatrix();
-};
-
 /**
  * Look up the current asset's cached storedSettings and apply a saved VR view
  * (model transform) if one exists.  Called immediately after VR session setup.
@@ -952,6 +1037,7 @@ const syncVrStateToCurrentAsset = (assetOverride = null, options = {}) => {
   setVrPivotStatusMessage("");
 
   tryApplySavedVrView(asset);
+  applyVrBaseCalibration();
   tryApplySavedVrClipPlanes(asset);
 
   activeVrBaseAssetId = nextBaseAssetId;
@@ -992,6 +1078,10 @@ const handleSessionEnd = () => {
   const store = useStore.getState();
 
   setVrViewInstanceCallback(null);
+  pendingVrOriginAlignment = null;
+  vrCalibrationRight = null;
+  vrCalibrationForward = null;
+  appliedVrBaseCalibration = { height: 0, horizontal: 0, zoom: 0, scale: 0 };
   stopVrAnimationLoop();
   renderer.xr.enabled = false;
   if (controls) controls.enabled = true;
@@ -1070,6 +1160,7 @@ const initializeVrSupport = async (lifecycleVersion) => {
         element: document.createElement("button"),
         mode: "vr",
         referenceSpaceType: "local-floor",
+        frameBufferScaleFactor: THREE.MathUtils.clamp(Number(store.vrResolutionScale) || 0.5, 0.3, 1),
         sessionInit: {
           optionalFeatures: ["hand-tracking"],
         },
@@ -1118,6 +1209,10 @@ export const disposeVrSupport = () => {
   vrLifecycleVersion += 1;
   vrInitializationPromise = null;
   reloadPageAfterVrExit = false;
+  pendingVrOriginAlignment = null;
+  vrCalibrationRight = null;
+  vrCalibrationForward = null;
+  appliedVrBaseCalibration = { height: 0, horizontal: 0, zoom: 0, scale: 0 };
 
   if (xrRenderer === renderer && xrRenderer?.xr.isPresenting) {
     handleSessionEnd();
@@ -1159,6 +1254,10 @@ export const enterVrSession = async () => {
   }
 
   try {
+    captureVrOriginAlignmentTarget();
+    renderer.xr.setFramebufferScaleFactor(
+      THREE.MathUtils.clamp(Number(store.vrResolutionScale) || 0.5, 0.3, 1),
+    );
     button.click();
     return true;
   } catch (err) {
