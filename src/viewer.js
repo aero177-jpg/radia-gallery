@@ -54,6 +54,11 @@ let pendingBg = null;
 // FPS overlay element
 export let fpsContainer = null;
 let fpsLimitEnabled = true;
+let showAppFps = false;
+let showRenderStats = false;
+let debugFrameCount = 0;
+let debugLastUpdate = performance.now();
+let debugAppFps = 0;
 let viewerElementRef = null;
 let visibilityChangeHandler = null;
 let webglContextLostHandler = null;
@@ -73,6 +78,41 @@ export const setActiveCamera = (cam) => { activeCamera = cam; };
 export const setOriginalImageAspect = (aspect) => { originalImageAspect = aspect; };
 export const setDollyZoomEnabled = (enabled) => { dollyZoomEnabled = enabled; };
 export const setBgImageUrl = (url) => { bgImageUrl = url; };
+export const applySparkPerformanceSettings = (settings) => {
+  if (spark) {
+    spark.enableLod = Boolean(settings.debugRuntimeLodEnabled);
+    spark.lodSplatCount = settings.debugLodSplatCount;
+    spark.lodRenderScale = settings.debugLodRenderScale;
+    spark.minSortIntervalMs = settings.debugMinSortIntervalMs;
+    spark.setDirty?.();
+  }
+  if (currentMesh) {
+    currentMesh.maxSh = settings.debugSplatShLevel;
+    currentMesh.updateGenerator?.();
+  }
+  requestRender();
+};
+
+export const recordRenderedFrame = (now = performance.now()) => {
+  debugFrameCount++;
+  const elapsed = now - debugLastUpdate;
+  if (elapsed < 250) return;
+
+  debugAppFps = Math.round((debugFrameCount * 1000) / elapsed);
+  debugFrameCount = 0;
+  debugLastUpdate = now;
+  if (!fpsContainer || (!showAppFps && !showRenderStats)) return;
+
+  const lines = [];
+  if (showAppFps) lines.push(`${debugAppFps} app FPS`);
+  if (showRenderStats) {
+    const sourceSplats = currentMesh?.packedSplats?.numSplats ?? currentMesh?.splats?.getNumSplats?.() ?? 0;
+    lines.push(`${spark?.activeSplats?.toLocaleString?.() ?? 0} active splats`);
+    lines.push(`${Number(sourceSplats).toLocaleString()} source splats`);
+    lines.push(`SH${currentMesh?.maxSh ?? 0} | ${renderer?.xr?.isPresenting ? 'XR' : 'desktop'}`);
+  }
+  fpsContainer.textContent = lines.join('\n');
+};
 export const getProvokingVertexSupport = () => {
   const gl = renderer?.getContext?.();
   if (!gl) return null;
@@ -96,6 +136,15 @@ const clearContextLossRecoveryTimer = () => {
 const reportRecoveryStatus = (message) => {
   import('./store.js').then(({ useStore }) => {
     useStore.getState().setStatus(message);
+  }).catch(() => {});
+
+  import('./store.js').then(({ useStore }) => {
+    const apply = () => applySparkPerformanceSettings(useStore.getState());
+    apply();
+    useStore.subscribe(
+      (s) => `${s.debugSplatShLevel}:${s.debugLodSplatCount}:${s.debugLodRenderScale}:${s.debugMinSortIntervalMs}`,
+      apply,
+    );
   }).catch(() => {});
 };
 
@@ -473,13 +522,15 @@ export const initViewer = (viewerEl) => {
 
   // Subscribe to store for showFps flag (lazy import to avoid circular deps)
   import('./store.js').then(({ useStore }) => {
-    // Initialize visibility
-    const initial = useStore.getState().showFps;
-    fpsContainer.style.display = initial ? 'block' : 'none';
-    // Subscribe to changes
-    useStore.subscribe((s) => s.showFps, (show) => {
-      if (fpsContainer) fpsContainer.style.display = show ? 'block' : 'none';
-    });
+    const updateVisibility = () => {
+      const state = useStore.getState();
+      showAppFps = Boolean(state.showFps);
+      showRenderStats = Boolean(state.debugShowRenderStats);
+      if (fpsContainer) fpsContainer.style.display = showAppFps || showRenderStats ? 'block' : 'none';
+      requestRender();
+    };
+    updateVisibility();
+    useStore.subscribe((s) => `${s.showFps}:${s.debugShowRenderStats}`, updateVisibility);
   }).catch(() => {});
 
   // Initialize dolly zoom baseline
@@ -509,10 +560,7 @@ export const initViewer = (viewerEl) => {
 };
 
 export const startRenderLoop = () => {
-  // Simple FPS measurement
   let lastTime = performance.now();
-  let frameCount = 0;
-  let lastFpsUpdate = performance.now();
   const targetFrameMs = 1000 / 60; // cap at 60 FPS
   let lastRenderTime = performance.now();
 
@@ -554,19 +602,7 @@ export const startRenderLoop = () => {
       }
       checkForGlErrors(now);
       needsRender = false;
-      frameCount++;
-    }
-
-    // Update FPS display once per 250ms if present
-    if (fpsContainer && fpsContainer.style.display === 'block') {
-      const now = performance.now();
-      const dt = now - lastFpsUpdate;
-      if (dt >= 250) {
-        const fps = Math.round((frameCount * 1000) / dt);
-        fpsContainer.textContent = `${fps} FPS`;
-        frameCount = 0;
-        lastFpsUpdate = now;
-      }
+      recordRenderedFrame(now);
     }
   };
   animate();

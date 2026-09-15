@@ -7,6 +7,7 @@ import {
   currentMesh,
   defaultCamera,
   requestRender,
+  recordRenderedFrame,
   suspendRenderLoop,
   resumeRenderLoop,
   THREE,
@@ -783,6 +784,7 @@ const setupVrAnimationLoop = () => {
     updateGrabbedObjects();
 
     renderer.render(scene, camera);
+    recordRenderedFrame(time);
   });
 };
 

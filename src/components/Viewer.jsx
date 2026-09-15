@@ -84,6 +84,8 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   const uploadProgress = useStore((state) => state.uploadProgress);
   const setUploadState = useStore((state) => state.setUploadState);
   const isLoading = useStore((state) => state.isLoading);
+  const status = useStore((state) => state.status);
+  const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const activeSourceId = useStore((state) => state.activeSourceId);
@@ -1027,9 +1029,14 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
           </div>
         )}
         {showSlowLoadingNotice && (
-            <div className="metadata-warning" style={{height: "40px", padding: "8px 14px"}}>
-              <span className="large-file-spinner" aria-hidden="true" />
-              <span>Loading...</span>
+          <div className="metadata-warning loading-status-notice">
+            <span className="large-file-spinner" aria-hidden="true" />
+            <span>
+              <strong>{status || 'Loading...'}</strong>
+              {debugRuntimeLodEnabled && status?.includes('LoD') && (
+                <small>Building the detail hierarchy in a worker. Large scenes can take several seconds per million splats.</small>
+              )}
+            </span>
           </div>
         )}
       </div>

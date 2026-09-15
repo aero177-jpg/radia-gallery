@@ -74,6 +74,12 @@ const getPersistedJson = (key, fallback = null) => {
 const QUALITY_PRESET_KEY = 'qualityPreset';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
+const DEBUG_RUNTIME_LOD_KEY = 'debugRuntimeLodEnabled';
+const DEBUG_SPLAT_SH_LEVEL_KEY = 'debugSplatShLevel';
+const DEBUG_LOD_SPLAT_COUNT_KEY = 'debugLodSplatCount';
+const DEBUG_LOD_RENDER_SCALE_KEY = 'debugLodRenderScale';
+const DEBUG_MIN_SORT_INTERVAL_KEY = 'debugMinSortIntervalMs';
+const DEBUG_RENDER_STATS_KEY = 'debugShowRenderStats';
 
 const UI_PREFERENCES_KEY = 'ui-preferences';
 
@@ -287,6 +293,12 @@ const persistedQualityPreset = getPersistedString(
 );
 const persistedCustomStdDev = getPersistedNumber(DEBUG_SPARK_STDDEV_KEY, Math.sqrt(5));
 const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
+const persistedRuntimeLod = getPersistedBoolean(DEBUG_RUNTIME_LOD_KEY, false);
+const persistedSplatShLevel = getPersistedNumber(DEBUG_SPLAT_SH_LEVEL_KEY, 3);
+const persistedLodSplatCount = getPersistedNumber(DEBUG_LOD_SPLAT_COUNT_KEY, 500000);
+const persistedLodRenderScale = getPersistedNumber(DEBUG_LOD_RENDER_SCALE_KEY, 1);
+const persistedMinSortIntervalMs = getPersistedNumber(DEBUG_MIN_SORT_INTERVAL_KEY, 0);
+const persistedShowRenderStats = getPersistedBoolean(DEBUG_RENDER_STATS_KEY, false);
 
 const persistedUiPrefs = normalizeUiPrefs(getPersistedJson(UI_PREFERENCES_KEY, null));
 
@@ -449,6 +461,12 @@ export const useStore = create(
   debugSettingsExpanded: false,
   debugFpsLimitEnabled: initialQuality.fpsLimit,
   debugSparkMaxStdDev: initialQuality.stdDev,
+  debugRuntimeLodEnabled: persistedRuntimeLod,
+  debugSplatShLevel: Math.max(0, Math.min(3, Math.round(persistedSplatShLevel))),
+  debugLodSplatCount: Math.max(100000, Math.round(persistedLodSplatCount)),
+  debugLodRenderScale: Math.max(0.5, persistedLodRenderScale),
+  debugMinSortIntervalMs: Math.max(0, persistedMinSortIntervalMs),
+  debugShowRenderStats: persistedShowRenderStats,
   qualityPreset: (QUALITY_PRESETS[persistedQualityPreset] || persistedQualityPreset === 'debug-custom')
     ? persistedQualityPreset
     : 'default',
@@ -854,6 +872,66 @@ export const useStore = create(
       }
     }
     set({ debugSparkMaxStdDev: value });
+  },
+
+  setDebugRuntimeLodEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(DEBUG_RUNTIME_LOD_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugRuntimeLodEnabled', err);
+    }
+    set({ debugRuntimeLodEnabled: value });
+  },
+
+  setDebugSplatShLevel: (level) => {
+    const value = Math.max(0, Math.min(3, Math.round(Number(level) || 0)));
+    try {
+      window.localStorage?.setItem(DEBUG_SPLAT_SH_LEVEL_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugSplatShLevel', err);
+    }
+    set({ debugSplatShLevel: value });
+  },
+
+  setDebugLodSplatCount: (count) => {
+    const value = Math.max(100000, Math.round(Number(count) || 500000));
+    try {
+      window.localStorage?.setItem(DEBUG_LOD_SPLAT_COUNT_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugLodSplatCount', err);
+    }
+    set({ debugLodSplatCount: value });
+  },
+
+  setDebugLodRenderScale: (scale) => {
+    const value = Math.max(0.5, Number(scale) || 1);
+    try {
+      window.localStorage?.setItem(DEBUG_LOD_RENDER_SCALE_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugLodRenderScale', err);
+    }
+    set({ debugLodRenderScale: value });
+  },
+
+  setDebugMinSortIntervalMs: (interval) => {
+    const value = Math.max(0, Math.round(Number(interval) || 0));
+    try {
+      window.localStorage?.setItem(DEBUG_MIN_SORT_INTERVAL_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugMinSortIntervalMs', err);
+    }
+    set({ debugMinSortIntervalMs: value });
+  },
+
+  setDebugShowRenderStats: (show) => {
+    const value = Boolean(show);
+    try {
+      window.localStorage?.setItem(DEBUG_RENDER_STATS_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugShowRenderStats', err);
+    }
+    set({ debugShowRenderStats: value });
   },
 
   /** Sets rendering quality preset and persists it */

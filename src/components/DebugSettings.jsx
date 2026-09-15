@@ -9,7 +9,7 @@ import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { useStore } from '../store';
 import { captureCurrentAssetPreview, getAssetList, getCurrentAssetIndex } from '../assetManager';
 import { savePreviewBlob } from '../fileStorage';
-import { loadFromStorageSource, resize } from '../fileLoader';
+import { loadFromStorageSource, reloadCurrentAsset, resize } from '../fileLoader';
 import { applyPreviewBackground } from '../backgroundManager.js';
 import { clearCustomMetadataForAsset } from '../customMetadata.js';
 import { requestRender, setStereoEffectEnabled } from '../viewer';
@@ -40,6 +40,18 @@ function DebugSettings() {
   const setDebugFpsLimitEnabled = useStore((state) => state.setDebugFpsLimitEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
+  const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
+  const setDebugRuntimeLodEnabled = useStore((state) => state.setDebugRuntimeLodEnabled);
+  const debugSplatShLevel = useStore((state) => state.debugSplatShLevel);
+  const setDebugSplatShLevel = useStore((state) => state.setDebugSplatShLevel);
+  const debugLodSplatCount = useStore((state) => state.debugLodSplatCount);
+  const setDebugLodSplatCount = useStore((state) => state.setDebugLodSplatCount);
+  const debugLodRenderScale = useStore((state) => state.debugLodRenderScale);
+  const setDebugLodRenderScale = useStore((state) => state.setDebugLodRenderScale);
+  const debugMinSortIntervalMs = useStore((state) => state.debugMinSortIntervalMs);
+  const setDebugMinSortIntervalMs = useStore((state) => state.setDebugMinSortIntervalMs);
+  const debugShowRenderStats = useStore((state) => state.debugShowRenderStats);
+  const setDebugShowRenderStats = useStore((state) => state.setDebugShowRenderStats);
   const setQualityPreset = useStore((state) => state.setQualityPreset);
   const customMetadataAvailable = useStore((state) => state.customMetadataAvailable);
   const setCustomMetadataAvailable = useStore((state) => state.setCustomMetadataAvailable);
@@ -59,6 +71,7 @@ function DebugSettings() {
   const [generatingPreview, setGeneratingPreview] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [isRestoringRemoved, setIsRestoringRemoved] = useState(false);
+  const [isRebuildingSplat, setIsRebuildingSplat] = useState(false);
   const [clearDataModalOpen, setClearDataModalOpen] = useState(false);
 
   // Debug upload overlay simulation
@@ -99,6 +112,23 @@ function DebugSettings() {
     setQualityPreset('debug-custom');
     setDebugFpsLimitEnabled(enabled);
   }, [setDebugFpsLimitEnabled, setQualityPreset]);
+
+  const handleRuntimeLodToggle = useCallback(async (e) => {
+    const enabled = Boolean(e.target.checked);
+    setDebugRuntimeLodEnabled(enabled);
+    if (currentAssetIndex < 0) return;
+
+    setIsRebuildingSplat(true);
+    try {
+      await reloadCurrentAsset({ rebuildSplatCache: true });
+      addLog(`Runtime LoD ${enabled ? 'enabled' : 'disabled'}; scene rebuilt`);
+    } catch (error) {
+      useStore.getState().setStatus(`Could not rebuild scene: ${error.message}`);
+      addLog(`Runtime LoD rebuild failed: ${error.message}`);
+    } finally {
+      setIsRebuildingSplat(false);
+    }
+  }, [addLog, currentAssetIndex, setDebugRuntimeLodEnabled]);
 
   /** Toggle side-by-side stereo effect; enter fullscreen when enabling */
   const handleStereoToggle = useCallback(async (e) => {
@@ -664,6 +694,73 @@ function DebugSettings() {
             />
             <span class="control-value">{debugSparkMaxStdDev.toFixed(2)}</span>
           </div>
+        </div>
+
+        <div class="settings-divider">
+          <span>Spark experiments</span>
+        </div>
+
+        <p class="settings-help">These controls are intended for comparing performance. Runtime LoD rebuilds the current scene in a worker and may take several seconds per million splats.</p>
+
+        <div class="control-row">
+          <span class="control-label">Runtime LoD</span>
+          <label class="switch">
+            <input type="checkbox" checked={debugRuntimeLodEnabled} disabled={isRebuildingSplat} onChange={handleRuntimeLodToggle} />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        {isRebuildingSplat && <div class="settings-inline-status">Rebuilding current scene...</div>}
+
+        <div class="control-row select-row">
+          <span class="control-label">Spherical harmonics</span>
+          <select value={debugSplatShLevel} onChange={(e) => setDebugSplatShLevel(Number(e.target.value))}>
+            <option value="0">SH0</option>
+            <option value="1">SH1</option>
+            <option value="2">SH2</option>
+            <option value="3">SH3</option>
+          </select>
+        </div>
+
+        <div class="control-row select-row">
+          <span class="control-label">LoD target</span>
+          <select disabled={!debugRuntimeLodEnabled} value={debugLodSplatCount} onChange={(e) => setDebugLodSplatCount(Number(e.target.value))}>
+            <option value="250000">250K</option>
+            <option value="500000">500K</option>
+            <option value="750000">750K</option>
+            <option value="1000000">1M</option>
+            <option value="1500000">1.5M</option>
+          </select>
+        </div>
+
+        <div class="control-row select-row">
+          <span class="control-label">LoD pixel threshold</span>
+          <select disabled={!debugRuntimeLodEnabled} value={debugLodRenderScale} onChange={(e) => setDebugLodRenderScale(Number(e.target.value))}>
+            <option value="1">1 px</option>
+            <option value="1.5">1.5 px</option>
+            <option value="2">2 px</option>
+            <option value="3">3 px</option>
+            <option value="5">5 px</option>
+          </select>
+        </div>
+
+        <div class="control-row select-row">
+          <span class="control-label">Sort interval</span>
+          <select value={debugMinSortIntervalMs} onChange={(e) => setDebugMinSortIntervalMs(Number(e.target.value))}>
+            <option value="0">Every frame</option>
+            <option value="16">16 ms</option>
+            <option value="33">33 ms</option>
+            <option value="50">50 ms</option>
+            <option value="100">100 ms</option>
+          </select>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Show renderer data</span>
+          <label class="switch">
+            <input type="checkbox" checked={debugShowRenderStats} onChange={(e) => setDebugShowRenderStats(Boolean(e.target.checked))} />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
         </div>
 
         </div>

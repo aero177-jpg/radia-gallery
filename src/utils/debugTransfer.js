@@ -53,6 +53,14 @@ const isSupportedTransferApp = (value) =>
 const QUALITY_PRESET_KEY = 'qualityPreset';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
+const DEBUG_PERFORMANCE_KEYS = [
+  'debugRuntimeLodEnabled',
+  'debugSplatShLevel',
+  'debugLodSplatCount',
+  'debugLodRenderScale',
+  'debugMinSortIntervalMs',
+  'debugShowRenderStats',
+];
 const UI_PREFERENCES_KEY = 'ui-preferences';
 
 export const createOptionSelectionState = (options = [], defaultValue = false) => {
@@ -774,6 +782,7 @@ const countViewerPreferenceKeys = () => {
     QUALITY_PRESET_KEY,
     DEBUG_SPARK_STDDEV_KEY,
     DEBUG_FPS_LIMIT_KEY,
+    ...DEBUG_PERFORMANCE_KEYS,
     UI_PREFERENCES_KEY,
   ].reduce((total, key) => total + (hasLocalStorageKey(key) ? 1 : 0), 0);
 };
@@ -925,6 +934,9 @@ export const clearSelectedLocalData = async (options = {}) => {
     summary.localStorageEntriesCleared += clearLocalStorageKey(QUALITY_PRESET_KEY);
     summary.localStorageEntriesCleared += clearLocalStorageKey(DEBUG_SPARK_STDDEV_KEY);
     summary.localStorageEntriesCleared += clearLocalStorageKey(DEBUG_FPS_LIMIT_KEY);
+    DEBUG_PERFORMANCE_KEYS.forEach((key) => {
+      summary.localStorageEntriesCleared += clearLocalStorageKey(key);
+    });
     summary.localStorageEntriesCleared += clearLocalStorageKey(UI_PREFERENCES_KEY);
   }
 

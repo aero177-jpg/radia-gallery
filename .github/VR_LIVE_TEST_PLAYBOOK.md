@@ -24,7 +24,7 @@ At each pass boundary record files changed, exact checks/results, unknowns, and 
 | Earlier assumption | Source-backed correction |
 | --- | --- |
 | The app calls `xr.enter()` / uses `sessionMode` | Current `enterVrSession` calls a detached button's `click()`. Spark 2.2 uses `mode: "vr"` and `toggleXr()`. Do not invent an `enter()` API. |
-| Modern SparkRenderer means LoD is active | Both [PLY](../src/formats/ply.js) and [SOG](../src/formats/sog.js) `loadData` constructors omit `lod: true`. No tree creation was found in these paths. Verify loaded data before assuming LoD controls work. |
+| Modern SparkRenderer means LoD is active | Runtime LoD is now an explicit persisted experiment. [PLY](../src/formats/ply.js) and [SOG](../src/formats/sog.js) pass `lod: true` only when **Runtime LoD** is enabled, and toggling it rebuilds the current splat cache. Verify active/selected counts before judging its effect. |
 | VR always gets a smaller automatic LoD budget | Spark `defaultSplatTarget()` uses device heuristics. `isOculus()` requires `navigator.xr` AND an `Oculus` user-agent substring. A Windows browser streaming to Quest can get the 2.5M desktop target, IF LoD is active. |
 | No explicit resolution/foveation options means full resolution/no foveation | SparkXr defaults `frameBufferScaleFactor` to **0.5**. Three.js r180 defaults requested foveation to **1.0**. Effective dimensions/support still need measurement. |
 | Need to lower the initial splat extent for VR | [Viewer](../src/viewer.js) constructs Spark with `Math.sqrt(5)` already, then applies store quality. Log the actual value; the constructor value can be overridden. |
@@ -34,6 +34,38 @@ At each pass boundary record files changed, exact checks/results, unknowns, and 
 | A scheduled desktop RAF proves duplicate draws | Desktop RAF still reschedules but normally returns before controls/draw while suspended. Count draws before alleging duplicate rendering. |
 
 These are source facts, not a measured explanation of the symptoms. Package declarations previously read were Spark `^2.2.0` and Three `^0.180.0`; confirm resolved versions in the live environment before relying on private fields or exact defaults. Do not upgrade packages as part of testing.
+
+## 2026-09-15 Performance Controls Handoff
+
+This revision adds a persisted **Spark experiments** section under Advanced Settings. It is a testing surface, not a claimed production optimization. The implementation was source-checked against Spark 2.2.0 declarations, `npm run build` passed, editor diagnostics reported no errors across `src/`, and `git diff --check` passed. No headset validation has been performed for these controls.
+
+### What Changed
+
+| Control | Default | Application behavior |
+| --- | --- | --- |
+| Runtime LoD | Off | Persists globally. On change, [Debug settings](../src/components/DebugSettings.jsx) calls `reloadCurrentAsset({ rebuildSplatCache: true })`; [file loader](../src/fileLoader.js) clears cached splats, then PLY/SOG reconstruction supplies `lod: true`. Worker generation can take several seconds per million splats. |
+| Spherical harmonics | SH3 | Persists globally and applies live through `mesh.maxSh` plus `updateGenerator()`. New meshes receive the selected value after initialization. No reload is intended. |
+| LoD target | 500K | Persists globally and applies live to `spark.lodSplatCount`. Options are 250K, 500K, 750K, 1M and 1.5M. It has no useful effect without a generated LoD tree. |
+| LoD pixel threshold | 1 px | Persists globally and applies live to `spark.lodRenderScale`. Options are 1, 1.5, 2, 3 and 5 px; higher values permit coarser detail. This is not framebuffer resolution. |
+| Sort interval | Every frame / 0 ms | Persists globally and applies live to `spark.minSortIntervalMs`. Options are 0, 16, 33, 50 and 100 ms. Larger intervals can reduce sorting frequency but may make head-turn ordering lag visible. |
+| Show renderer data | Off | Persists globally. Expands the existing overlay with Spark `activeSplats`, source splat count, selected SH level and XR/desktop mode. |
+| Show FPS | Off, session state only | The shared overlay now labels this **app FPS** and receives completed app render frames from both desktop and XR loops. It is not headset compositor/display FPS. |
+
+Relevant ownership:
+
+- [Store](../src/store.js) owns persistence and setters. [Debug transfer](../src/utils/debugTransfer.js) includes the new keys in viewer-preference clearing.
+- [Splat manager](../src/splatManager.js) reads runtime LoD/SH settings while constructing a mesh and publishes LoD build status.
+- [Viewer](../src/viewer.js) owns live Spark settings and the diagnostic overlay through `applySparkPerformanceSettings` and `recordRenderedFrame`.
+- [VR module](../src/vrMode.js) records one app frame after each XR render into the shared overlay. No second XR loop was added.
+- [Viewer component](../src/components/Viewer.jsx) shows the current loader stage and worker explanation after the existing slow-load delay.
+
+Known limitations to preserve during handoff:
+
+- Runtime LoD generation is implemented only for the current PLY/SOG constructors. Do not infer behavior for future formats or prebuilt RAD data.
+- The overlay's `activeSplats` is Spark's latest completed active count. “Source splats” is the loaded source count; neither is a headset compositor metric.
+- Runtime LoD rebuild clears the splat cache, so neighboring assets may preload again. Measure memory and navigation latency after toggling.
+- A failed rebuild reports status/log errors but currently leaves the newly selected persisted Runtime LoD value in place. Record failures before retrying or manually restoring the toggle.
+- Settings are global, not per asset or VR-only. SH, target, pixel threshold and sort interval can affect desktop rendering too.
 
 ## Part 1: Control And Lifecycle
 
@@ -46,7 +78,7 @@ These are source facts, not a measured explanation of the symptoms. Package decl
 
 Spark creates its default button asynchronously and appends it to `document.body`. `updateElement()` clears `display` and removes `hidden`, including on session end. In tagged 2.2.0, `button: false` still takes the create-button path. Supplying a detached `element` avoids that path while preserving support detection and its click listener.
 
-Prior terminal-only mocked checks passed concurrent/delayed readiness, entry/exit/re-entry, active cleanup, stale callbacks, renderer replacement, and unsupported XR. The harness was not saved as a repository test and did not execute Three.js or a compositor. Editor diagnostics were clear. `npm run build` failed because `vite` was unavailable; another syntax check was skipped. Do not claim a successful build.
+Prior terminal-only mocked checks passed concurrent/delayed readiness, entry/exit/re-entry, active cleanup, stale callbacks, renderer replacement, and unsupported XR. The harness was not saved as a repository test and did not execute Three.js or a compositor. The 2026-09-15 performance-control revision installed declared dependencies without creating a lockfile and `npm run build` passed. This still does not establish headset behavior.
 
 ### Live Sequence
 
@@ -155,15 +187,36 @@ GPU timing: feature-detect WebGL2 `EXT_disjoint_timer_query_webgl2`. Enclose the
 
 Count desktop draws during XR before changing loops. The main RAF remains scheduled but suspended; its FPS cap is not in the XR callback. Inspect other rendering entry points only if counters reveal unexpected work. The app's desktop FPS counter stops updating while suspended, but this is NOT the source of the user's readings.
 
-### Highest-Value Experiment: LoD Availability
+### Highest-Value Experiment: Runtime LoD
 
-The PLY/SOG loaders omit the documented `lod: true` opt-in. Spark's nonpaged LoD path needs generated/prebuilt data AND selected indices. Enabling the renderer flag or lowering its budget cannot create a missing tree.
+The UI now performs the previously proposed `lod: true` constructor experiment and forces a real cache rebuild. The first headset task is to prove that this creates and uses a LoD hierarchy, then determine whether changing selected splat count affects the reported headset rate.
 
-1. Inspect LoD fields after `mesh.initialized` and several XR frames. Missing data/indices is the first explanation to test for ineffective LoD controls.
-2. If absent, test one representative asset with `lod: true` in the existing format constructor. This is a controlled loading experiment, NOT permission to enable it globally. Reload the asset; a renderer flag alone is insufficient.
-3. Record preprocessing duration, memory/loading impact, selected count and quality. The Spark guide estimates seconds per million splats; do not promise instant entry or generate trees inside an XR callback.
-4. Production opt-in/lazy LoD requires a separate decision about desktop output, original data, preload/cache behavior and failure fallback. Do not introduce RAD conversion or storage changes during live testing.
-5. If LoD is active on Windows, try a lower explicit XR budget or `lodSplatScale`. The Oculus user-agent heuristic may retain the desktop target. Restore exact prior values on exit/disposal, including undefined `lodSplatCount`.
+1. Load one representative heavy PLY/SOG with Runtime LoD off. Record load time, source/active splats, headset metric and visible quality from a repeatable pose.
+2. Enable Runtime LoD outside an active sample. Wait for “Building runtime LoD tree...” and “Finalizing LoD scene...” to finish. Record generation duration, peak memory if available, and whether navigation causes additional preprocessing.
+3. Enter VR, enable **Show renderer data**, and confirm active splats settle below the source count. If they do not, inspect `mesh.enableLod`, generated LoD data, `spark.enableLod`, and `spark.lodInstances.get(mesh)?.numSplats` before changing more controls.
+4. Compare 1M -> 500K -> 250K targets, waiting for active splats to converge after each change. Use baseline -> variant -> baseline ordering and preserve the same physical viewpoint.
+5. If target changes alter active splats but not headset FPS, test LoD pixel threshold 1 -> 2 while holding target fixed. If counts and headset behavior still do not change, capture a worker-inclusive browser trace before adding more controls.
+6. Disable Runtime LoD and wait for the non-LoD scene rebuild. Confirm source count, quality, load/navigation behavior and headset readings return near baseline.
+
+Do not introduce RAD conversion, storage changes, automatic production enablement or cone foveation during this first test. Those are follow-ups only after runtime generation demonstrates a repeatable benefit.
+
+### Recommended First Session On The VR Computer
+
+1. Pull the revision, install the existing declared dependencies, and run `npm run build`. Record the commit and resolved `@sparkjsdev/spark`/`three` versions; do not upgrade them during comparison.
+2. Before entering VR, open Advanced Settings and restore Runtime LoD off, SH3, LoD target 1M, pixel threshold 1 px, sort interval 0 ms, and Show renderer data on. Also record splat width and XR resolution because those pre-existing controls remain independent.
+3. Use one heavy scene first. Capture a 10-second no-LoD baseline with the headset overlay visible, then enable Runtime LoD and wait for the rebuild outside the measurement window.
+4. Capture LoD at 1M, 500K and 250K, then return to 1M. For every sample record headset FPS/metric, app FPS, active/source splats, visible quality and obvious head-turn artifacts.
+5. Repeat only baseline, best LoD candidate and restored baseline on one lighter scene. This tests whether a result scales with source workload without expanding the matrix prematurely.
+6. If selected counts respond and headset FPS improves repeatably, test SH3 -> SH0 and sort 0 -> 33 ms separately. If selected counts respond but headset FPS does not, prioritize a worker-inclusive performance trace and runtime/compositor timing instead.
+7. End by restoring the chosen baseline values and recording whether Runtime LoD is left enabled. Because settings persist globally, the next machine/session otherwise inherits an undocumented variant.
+
+Recommended follow-up implementation order after evidence:
+
+1. Add bounded callback interval and synchronous render timing if headset telemetry plus active counts cannot separate application pacing from compositor/runtime pacing.
+2. Add explicit selected-LoD count from `spark.lodInstances.get(mesh)?.numSplats` to diagnostics if `activeSplats` is too ambiguous during transitions.
+3. Roll back the persisted Runtime LoD setting automatically when reconstruction fails, and preserve the previous visible mesh until replacement succeeds, if failures are observed.
+4. Consider per-device or VR-only defaults only after both heavy and light scenes show a stable quality/performance tradeoff. Do not make Runtime LoD globally default-on from one asset result.
+5. Evaluate prebuilt RAD/storage strategy only if runtime generation helps rendering but its load time or memory cost is unacceptable.
 
 ### Controlled Comparison
 
@@ -171,10 +224,13 @@ Use the same view/runtime settings, no slideshow or loading during a sample. War
 
 | Variant | Single change | Caution |
 | --- | --- | --- |
-| Baseline | No changes | Record actual settings, headset telemetry and LoD availability. |
+| Baseline | Runtime LoD off, SH3, sort 0 ms; record actual splat width/XR scale | Record headset telemetry and source/active counts. |
 | Splat extent | Actual `maxStdDev` -> 2.0, then restore | `sqrt(5)` is already about 2.236; this is a modest change. |
-| LoD budget | Halve current target with `lodSplatScale`, then restore | Needs trees/indices; wait for convergence and confirm count changes. |
-| LoD screen size | `lodRenderScale` 1 -> 2 if baseline is 1 | Higher means coarser minimum screen detail, NOT lower framebuffer resolution. |
+| Runtime LoD | Enable and wait for the rebuild; target 1M | Record generation time, memory, active count and navigation cost before sampling. |
+| LoD budget | 1M -> 500K -> 250K -> 1M | Wait for convergence and confirm active count changes. Change no other setting. |
+| LoD screen size | 1 -> 2 -> 1 at a fixed target | Higher means coarser minimum screen detail, NOT lower framebuffer resolution. |
+| SH level | SH3 -> SH0 -> SH3 at a fixed LoD state | Record visual lighting/view-dependence change as well as timing. |
+| Sort cadence | 0 -> 33 -> 100 -> 0 ms at a fixed LoD state | Turn the head deliberately; reject settings with visible ordering lag even if FPS rises. |
 | Framebuffer | Configured 0.5 -> 0.35 for a new session | Exit and configure before entry. 0.75 would INCREASE resolution from Spark's 0.5 default. Verify dimensions changed. |
 | Compositor foveation | 0 -> 0.5 -> restore actual baseline | Baseline may already request 1.0; lowering to 0.5 can increase cost. Unsupported is valid. |
 | Desktop reference | Same scene/view with continuous motion | Desktop is demand-driven; idle FPS is not a throughput benchmark. Record differing dimensions. |
@@ -204,6 +260,8 @@ Tested and reverted: `SparkRenderer.clipXY` was set to `1.0` (from its documente
 
 Current production-affecting VR settings implementation: global calibration ranges are height/horizontal/depth `-3..+3` world units, logarithmic base scale `-6..+6` ($1/64x..64x$), and XR resolution `0.30x..1.00x`, applied on the next VR session. Scene-specific saved VR views remain separate from the global calibration. No performance improvement is claimed.
 
+The 2026-09-15 revision adds the Spark experiment controls summarized above. Runtime LoD reconstruction, live SH/LoD/sort controls, renderer data, shared desktop/XR app-frame counting and LoD loading status are implemented and build-validated. They are not headset-validated, and no setting has been selected as a new default. The next single action is the heavy-scene no-LoD -> LoD 1M -> 500K -> 250K -> 1M comparison while recording headset telemetry and active/source splats.
+
 ```text
 Pass / date / revision:
 Browser / resolved Spark / Three:
@@ -220,7 +278,7 @@ Next one action:
 
 Prompt for a fresh chat:
 
-> Read Start Here and Corrections in `.github/VR_LIVE_TEST_PLAYBOOK.md`, then only Part [1, 2, or 3]. Check current code at its named symbols. Use my results below to choose one diagnostic or one fix with a discriminating check. Source facts are leads, not headset measurements. My VR FPS readings come from headset tools, not the app counter. Do not reopen the other parts. Ask only for missing information that changes the next action. End with an updated Results record.
+> Read Start Here, Corrections, and the 2026-09-15 Performance Controls Handoff in `.github/VR_LIVE_TEST_PLAYBOOK.md`, then only Part 3. The controls are implemented and build-validated but not headset-validated. Start with Recommended First Session On The VR Computer. My authoritative VR FPS readings come from headset tools; “app FPS” and Spark splat counts are complementary diagnostics. Change one setting at a time, record exact persisted values, and restore baselines. Do not add RAD conversion, storage changes, foveation controls, or new defaults before runtime LoD produces a repeatable measured result. End with an updated Results record and one next action.
 
 ## References
 

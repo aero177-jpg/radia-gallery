@@ -5,11 +5,12 @@ export const plyFormat = {
   id: "ply",
   label: "PLY",
   extensions: ["ply"],
-  async loadData({ file, bytes }) {
+  async loadData({ file, bytes, runtimeLodEnabled = false }) {
     const mesh = new SplatMesh({
       fileBytes: bytes,
       fileType: SplatFileType.PLY,
       fileName: file?.name,
+      lod: runtimeLodEnabled,
     });
     await mesh.initialized;
     return mesh;

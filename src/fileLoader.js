@@ -2410,7 +2410,7 @@ export const loadPrevAsset = async (options = {}) => {
  * Reloads the current asset to force a clean render (e.g., after fullscreen).
  * Skips if navigation is already locked or no asset is selected.
  */
-export const reloadCurrentAsset = async () => {
+export const reloadCurrentAsset = async ({ rebuildSplatCache = false } = {}) => {
   if (isNavigationLocked) return;
 
   const index = getCurrentAssetIndex();
@@ -2427,6 +2427,11 @@ export const reloadCurrentAsset = async () => {
   }
 
   try {
+    if (rebuildSplatCache) {
+      useStore.getState().setStatus("Rebuilding scene with new performance settings...");
+      resetSplatManager();
+      setCurrentMesh(null);
+    }
     await loadSplatFile(asset);
   } finally {
     isNavigationLocked = false;

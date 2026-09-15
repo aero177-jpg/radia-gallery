@@ -6,6 +6,7 @@
 
 import { scene, THREE } from "./viewer.js";
 import { getFormatHandler } from "./formats/index.js";
+import { useStore } from "./store.js";
 import { DEFAULT_AUTO_ORBIT_SETTINGS, getAutoOrbitParameters, normalizeAutoOrbitSettings } from './autoOrbitConfig.js';
 
 let splatGroup = null;
@@ -114,7 +115,22 @@ const createEntry = async (asset) => {
     }
   }
 
-  const mesh = await formatHandler.loadData({ file, bytes });
+  const store = useStore.getState();
+  const runtimeLodEnabled = Boolean(store.debugRuntimeLodEnabled);
+  const loadStartedAt = performance.now();
+  if (runtimeLodEnabled) {
+    store.setStatus("Building runtime LoD tree...");
+  }
+
+  const mesh = await formatHandler.loadData({ file, bytes, runtimeLodEnabled });
+  mesh.maxSh = store.debugSplatShLevel;
+  mesh.updateGenerator?.();
+
+  if (runtimeLodEnabled) {
+    const elapsedSeconds = ((performance.now() - loadStartedAt) / 1000).toFixed(1);
+    store.setStatus("Finalizing LoD scene...");
+    store.addLog(`Runtime LoD ready in ${elapsedSeconds}s`);
+  }
   mesh.visible = false;
   mesh.userData.assetId = getCacheKey(asset);
   ensureGroup().add(mesh);
