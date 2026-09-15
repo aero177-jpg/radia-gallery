@@ -1323,7 +1323,7 @@ input[type="checkbox"]:disabled:checked {
 }
 
 .loading-status-notice.is-verbose {
-  width: min(360px, calc(100% - 24px));
+  max-width: min(360px, calc(100% - 24px));
 }
 
 .loading-progress-track {
@@ -5306,6 +5306,45 @@ select option {
 .vr-overlay__save-btn.is-error {
   border-color: rgba(255, 100, 100, 0.7);
   background: rgba(255, 100, 100, 0.12);
+}
+
+.vr-overlay__save-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vr-overlay__clear-save-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 140, 140, 0.45);
+  background: rgba(255, 100, 100, 0.08);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.vr-overlay__clear-save-btn:hover:not(:disabled) {
+  background: rgba(255, 100, 100, 0.18);
+  border-color: rgba(255, 140, 140, 0.8);
+  transform: scale(1.04);
+}
+
+.vr-overlay__clear-save-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.vr-overlay__clear-save-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .vr-overlay__nav-spacer {

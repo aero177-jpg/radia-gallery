@@ -251,10 +251,10 @@ function SidePanel() {
               <span>Time</span>
               <span>{fileInfo.loadTime}</span>
             </div>
-            <div class="row">
+            {/* <div class="row">
               <span>Provoking vertex</span>
               <span>{provokingVertexSupported === null ? 'Checking...' : provokingVertexSupported ? 'Supported' : 'Not supported'}</span>
-            </div>
+            </div> */}
             <button
               class="home-btn debug-home"
               aria-label="Back to home"

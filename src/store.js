@@ -93,6 +93,7 @@ const DEFAULT_UI_PREFS = {
   vrBaseZoom: 0,
   vrBaseScale: 0,
   vrResolutionScale: 0.5,
+  vrPassthroughEnabled: false,
   animation: {
     intensity: 'medium',
     direction: 'left',
@@ -135,6 +136,9 @@ const normalizeUiPrefs = (raw) => {
   if (Number.isFinite(raw.vrBaseZoom)) prefs.vrBaseZoom = raw.vrBaseZoom;
   if (Number.isFinite(raw.vrBaseScale)) prefs.vrBaseScale = raw.vrBaseScale;
   if (Number.isFinite(raw.vrResolutionScale)) prefs.vrResolutionScale = raw.vrResolutionScale;
+  if (typeof raw.vrPassthroughEnabled === 'boolean') {
+    prefs.vrPassthroughEnabled = raw.vrPassthroughEnabled;
+  }
 
   if (raw.animation && typeof raw.animation === 'object') {
     const anim = {};
@@ -211,6 +215,10 @@ const persistUiPrefs = (state) => {
   if (Number.isFinite(state.vrResolutionScale)
     && state.vrResolutionScale !== DEFAULT_UI_PREFS.vrResolutionScale) {
     prefs.vrResolutionScale = state.vrResolutionScale;
+  }
+  if (typeof state.vrPassthroughEnabled === 'boolean'
+    && state.vrPassthroughEnabled !== DEFAULT_UI_PREFS.vrPassthroughEnabled) {
+    prefs.vrPassthroughEnabled = state.vrPassthroughEnabled;
   }
 
   if (state.animationIntensity && state.animationIntensity !== DEFAULT_UI_PREFS.animation.intensity) {
@@ -457,6 +465,7 @@ export const useStore = create(
   vrBaseZoom: persistedUiPrefs.vrBaseZoom ?? 0,
   vrBaseScale: persistedUiPrefs.vrBaseScale ?? 0,
   vrResolutionScale: persistedUiPrefs.vrResolutionScale ?? 0.5,
+  vrPassthroughEnabled: persistedUiPrefs.vrPassthroughEnabled ?? false,
   fillMode: false,
   
   // Debug
@@ -466,7 +475,7 @@ export const useStore = create(
   debugSparkMaxStdDev: initialQuality.stdDev,
   debugRuntimeLodEnabled: persistedRuntimeLod,
   debugSplatShLevel: Math.max(0, Math.min(3, Math.round(persistedSplatShLevel))),
-  debugLodSplatCount: Math.max(100000, Math.round(persistedLodSplatCount)),
+  debugLodSplatCount: persistedLodSplatCount === 0 ? 0 : Math.max(750000, Math.round(persistedLodSplatCount)),
   debugLodRenderScale: Math.max(0.5, persistedLodRenderScale),
   debugMinSortIntervalMs: Math.max(0, persistedMinSortIntervalMs),
   debugShowRenderStats: persistedShowRenderStats,
@@ -573,6 +582,12 @@ export const useStore = create(
     const clamped = Math.min(Math.max(value, 0.3), 1);
     set({ vrResolutionScale: clamped });
     persistUiPrefs({ ...get(), vrResolutionScale: clamped });
+  },
+
+  setVrPassthroughEnabled: (vrPassthroughEnabled) => {
+    const enabled = Boolean(vrPassthroughEnabled);
+    set({ vrPassthroughEnabled: enabled });
+    persistUiPrefs({ ...get(), vrPassthroughEnabled: enabled });
   },
 
   /** Deprecated: toggles legacy fill-to-screen projection vs fit-to-bounds */
@@ -915,7 +930,8 @@ export const useStore = create(
   },
 
   setDebugLodSplatCount: (count) => {
-    const value = Math.max(100000, Math.round(Number(count) || 500000));
+    const parsed = Math.round(Number(count));
+    const value = parsed === 0 ? 0 : Math.max(250000, Number.isFinite(parsed) ? parsed : 250000);
     try {
       window.localStorage?.setItem(DEBUG_LOD_SPLAT_COUNT_KEY, String(value));
     } catch (err) {

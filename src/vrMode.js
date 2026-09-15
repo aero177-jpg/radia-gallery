@@ -111,6 +111,11 @@ let pendingVrOriginAlignment = null;
 let vrCalibrationRight = null;
 let vrCalibrationForward = null;
 let appliedVrBaseCalibration = { height: 0, horizontal: 0, zoom: 0, scale: 0 };
+const meshVrBaseCalibration = new WeakMap();
+const meshVrUnposedTransforms = new WeakMap();
+let preVrSceneBackground = null;
+let preVrClearColor = null;
+let preVrClearAlpha = null;
 
 const MIN_VR_NEAR_CLIP = 0.001;
 const MAX_VR_NEAR_CLIP = 1;
@@ -299,6 +304,23 @@ const applyVrClipPlanes = ({ nearClip, farClip } = {}) => {
   return { near: resolvedNear, far: resolvedFar };
 };
 
+const applyVrBackground = () => {
+  if (!renderer || !scene) return;
+
+  scene.background = null;
+  renderer.setClearColor(useStore.getState().vrPassthroughEnabled ? 0x00ff00 : 0x000000, 1);
+};
+
+const restoreNonVrBackground = () => {
+  if (!renderer || !scene || !preVrClearColor) return;
+
+  scene.background = preVrSceneBackground;
+  renderer.setClearColor(preVrClearColor, preVrClearAlpha);
+  preVrSceneBackground = null;
+  preVrClearColor = null;
+  preVrClearAlpha = null;
+};
+
 const applyVrNearClip = (nextNearClip) => {
   return applyVrClipPlanes({ nearClip: nextNearClip }).near;
 };
@@ -419,6 +441,9 @@ const restoreModelTransform = () => {
   if (currentMesh && initialModelQuaternion) {
     currentMesh.quaternion.copy(initialModelQuaternion);
   }
+  if (currentMesh) {
+    meshVrBaseCalibration.delete(currentMesh);
+  }
   store.setVrModelScale(1);
   initialModelScale = null;
   initialModelPosition = null;
@@ -473,12 +498,42 @@ const applyVrBaseCalibration = () => {
     if (vrCalibrationForward) initialModelPosition.addScaledVector(vrCalibrationForward, zoomDelta);
   }
   appliedVrBaseCalibration = { height, horizontal, zoom, scale };
+  meshVrBaseCalibration.set(currentMesh, { ...appliedVrBaseCalibration });
   requestRender();
 };
 
 export const refreshVrBaseCalibration = () => {
   if (!useStore.getState().vrSessionActive) return;
   applyVrBaseCalibration();
+};
+
+export const clearCurrentVrView = () => {
+  if (!currentMesh || !useStore.getState().vrSessionActive) return false;
+
+  const baseline = meshVrUnposedTransforms.get(currentMesh);
+  if (!baseline) return false;
+
+  currentMesh.position.copy(baseline.position);
+  currentMesh.quaternion.copy(baseline.quaternion);
+  currentMesh.scale.copy(baseline.scale);
+  initialModelPosition = baseline.position.clone();
+  initialModelQuaternion = baseline.quaternion.clone();
+  initialModelScale = baseline.scale.clone();
+  trueOriginalPosition = baseline.position.clone();
+  trueOriginalScale = baseline.scale.clone();
+  meshVrBaseCalibration.delete(currentMesh);
+  appliedVrBaseCalibration = { height: 0, horizontal: 0, zoom: 0, scale: 0 };
+  useStore.getState().setVrModelScale(1);
+  applyVrBaseCalibration();
+  return true;
+};
+
+export const setVrPassthroughEnabled = (enabled) => {
+  useStore.getState().setVrPassthroughEnabled(enabled);
+  if (useStore.getState().vrSessionActive) {
+    applyVrBackground();
+    requestRender();
+  }
 };
 
 const establishVrAssetBaseline = () => {
@@ -497,12 +552,21 @@ const establishVrAssetBaseline = () => {
     return;
   }
 
+  if (!meshVrUnposedTransforms.has(currentMesh)) {
+    meshVrUnposedTransforms.set(currentMesh, {
+      position: currentMesh.position.clone(),
+      quaternion: currentMesh.quaternion.clone(),
+      scale: currentMesh.scale.clone(),
+    });
+  }
+
   trueOriginalScale = currentMesh.scale.clone();
   trueOriginalPosition = currentMesh.position.clone();
   initialModelScale = currentMesh.scale.clone();
   initialModelPosition = currentMesh.position.clone();
   initialModelQuaternion = currentMesh.quaternion.clone();
-  appliedVrBaseCalibration = { height: 0, horizontal: 0, zoom: 0, scale: 0 };
+  appliedVrBaseCalibration = meshVrBaseCalibration.get(currentMesh)
+    ?? { height: 0, horizontal: 0, zoom: 0, scale: 0 };
   const asset = store.currentAssetIndex >= 0 ? store.assets[store.currentAssetIndex] : null;
   activeVrPivotLocalPoint = getSavedVrPivotLocalPointForAsset(asset);
   store.setVrModelScale(1);
@@ -783,6 +847,7 @@ const setupVrAnimationLoop = () => {
     handleVrGamepadInput(dt);
     updateGrabbedObjects();
 
+    applyVrBackground();
     renderer.render(scene, camera);
     recordRenderedFrame(time);
   });
@@ -1041,7 +1106,7 @@ const syncVrStateToCurrentAsset = (assetOverride = null, options = {}) => {
 
   const hasAuthoritativeVrView = tryApplySavedVrView(asset);
   if (!hasAuthoritativeVrView) {
-    applyVrBaseCalibration();
+  applyVrBaseCalibration();
   }
   tryApplySavedVrClipPlanes(asset);
 
@@ -1057,6 +1122,10 @@ const handleSessionStart = () => {
   suspendRenderLoop();
   renderer.xr.enabled = true;
   renderer.xr.setReferenceSpaceType?.("local-floor");
+  preVrSceneBackground = scene?.background ?? null;
+  preVrClearColor = renderer.getClearColor(new THREE.Color()).clone();
+  preVrClearAlpha = renderer.getClearAlpha();
+  applyVrBackground();
   if (controls) controls.enabled = false;
   preVrCameraNear = camera?.near ?? null;
   preVrCameraFar = camera?.far ?? null;
@@ -1089,6 +1158,7 @@ const handleSessionEnd = () => {
   appliedVrBaseCalibration = { height: 0, horizontal: 0, zoom: 0, scale: 0 };
   stopVrAnimationLoop();
   renderer.xr.enabled = false;
+  restoreNonVrBackground();
   if (controls) controls.enabled = true;
   restoreModelTransform();
   disposeGrabControllers();

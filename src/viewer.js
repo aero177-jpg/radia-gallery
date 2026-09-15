@@ -73,15 +73,32 @@ const GL_ERROR_CHECK_INTERVAL_MS = 500;
 const GL_ERROR_STREAK_THRESHOLD = 3;
 const CONTEXT_LOSS_RECOVERY_DELAY_MS = 1500;
 
-export const setCurrentMesh = (mesh) => { currentMesh = mesh; };
+const updateFpsOverlayVisibility = () => {
+  if (fpsContainer) {
+    fpsContainer.style.display = currentMesh && (showAppFps || showRenderStats) ? 'block' : 'none';
+  }
+};
+
+export const setCurrentMesh = (mesh) => {
+  currentMesh = mesh;
+  updateFpsOverlayVisibility();
+  if (mesh) {
+    import('./store.js').then(({ useStore }) => {
+      applySparkPerformanceSettings(useStore.getState());
+    }).catch(() => {});
+  }
+};
 export const setActiveCamera = (cam) => { activeCamera = cam; };
 export const setOriginalImageAspect = (aspect) => { originalImageAspect = aspect; };
 export const setDollyZoomEnabled = (enabled) => { dollyZoomEnabled = enabled; };
 export const setBgImageUrl = (url) => { bgImageUrl = url; };
 export const applySparkPerformanceSettings = (settings) => {
   if (spark) {
+    const sourceSplatCount = currentMesh?.packedSplats?.numSplats ?? currentMesh?.splats?.getNumSplats?.();
     spark.enableLod = Boolean(settings.debugRuntimeLodEnabled);
-    spark.lodSplatCount = settings.debugLodSplatCount;
+    spark.lodSplatCount = settings.debugLodSplatCount === 0 && Number.isFinite(sourceSplatCount)
+      ? sourceSplatCount
+      : settings.debugLodSplatCount;
     spark.lodRenderScale = settings.debugLodRenderScale;
     spark.minSortIntervalMs = settings.debugMinSortIntervalMs;
     spark.setDirty?.();
@@ -101,14 +118,14 @@ export const recordRenderedFrame = (now = performance.now()) => {
   debugAppFps = Math.round((debugFrameCount * 1000) / elapsed);
   debugFrameCount = 0;
   debugLastUpdate = now;
-  if (!fpsContainer || (!showAppFps && !showRenderStats)) return;
+  if (!fpsContainer || !currentMesh || (!showAppFps && !showRenderStats)) return;
 
   const lines = [];
-  if (showAppFps) lines.push(`${debugAppFps} app FPS`);
+  if (showAppFps) lines.push(`${debugAppFps} FPS`);
   if (showRenderStats) {
     const sourceSplats = currentMesh?.packedSplats?.numSplats ?? currentMesh?.splats?.getNumSplats?.() ?? 0;
     lines.push(`${spark?.activeSplats?.toLocaleString?.() ?? 0} active splats`);
-    lines.push(`${Number(sourceSplats).toLocaleString()} source splats`);
+    // lines.push(`${Number(sourceSplats).toLocaleString()} source splats`);
     lines.push(`SH${currentMesh?.maxSh ?? 0} | ${renderer?.xr?.isPresenting ? 'XR' : 'desktop'}`);
   }
   fpsContainer.textContent = lines.join('\n');
@@ -504,6 +521,16 @@ export const initViewer = (viewerEl) => {
     useStore.subscribe((s) => s.debugSparkMaxStdDev, applySparkMaxStdDev);
   }).catch(() => {});
 
+  // Apply live Spark settings, including spherical-harmonic level, during a normal viewer session.
+  import('./store.js').then(({ useStore }) => {
+    const apply = () => applySparkPerformanceSettings(useStore.getState());
+    apply();
+    useStore.subscribe(
+      (s) => `${s.debugRuntimeLodEnabled}:${s.debugSplatShLevel}:${s.debugLodSplatCount}:${s.debugLodRenderScale}:${s.debugMinSortIntervalMs}`,
+      apply,
+    );
+  }).catch(() => {});
+
   // Subscribe to FPS limit toggle
   import('./store.js').then(({ useStore }) => {
     fpsLimitEnabled = useStore.getState().debugFpsLimitEnabled;
@@ -526,7 +553,7 @@ export const initViewer = (viewerEl) => {
       const state = useStore.getState();
       showAppFps = Boolean(state.showFps);
       showRenderStats = Boolean(state.debugShowRenderStats);
-      if (fpsContainer) fpsContainer.style.display = showAppFps || showRenderStats ? 'block' : 'none';
+      updateFpsOverlayVisibility();
       requestRender();
     };
     updateVisibility();

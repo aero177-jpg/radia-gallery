@@ -1,0 +1,76 @@
+.tetromino-loader {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.tetrominos {
+  position: relative;
+  width: 192px;
+  height: 112px;
+  transform: translate(-20px, -48px);
+}
+
+.tetromino {
+  position: absolute;
+  width: 96px;
+  height: 112px;
+  background: color-mix(in srgb, var(--tetromino-theme-color, #363d50) 35%, #17181b);
+  mask: url("data:image/svg+xml;utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 612 684'%3E%3Cpath fill='%23000' d='M305.7 0L0 170.9v342.3L305.7 684 612 513.2V170.9L305.7 0z'/%3E%3C/svg%3E") no-repeat top center / contain;
+}
+
+.tetromino::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: color-mix(in srgb, #c5cbd7 90%, var(--tetromino-theme-color, #0c0d10));
+  mask: url("data:image/svg+xml;utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 612 684'%3E%3Cpath fill='%23000' d='M305.7 80.1l-233.6 131 233.6 131 234.2-131-234.2-131'/%3E%3C/svg%3E") no-repeat top center / contain;
+}
+
+.box1 {
+  animation: tetromino1 1.5s ease-out infinite;
+}
+
+.box2 {
+  animation: tetromino2 1.5s ease-out infinite;
+}
+
+.box3 {
+  z-index: 2;
+  animation: tetromino3 1.5s ease-out infinite;
+}
+
+.box4 {
+  animation: tetromino4 1.5s ease-out infinite;
+}
+
+@keyframes tetromino1 {
+  0%, 40% { transform: translate(0, 0); }
+  50% { transform: translate(48px, -27px); }
+  60%, 100% { transform: translate(96px, 0); }
+}
+
+@keyframes tetromino2 {
+  0%, 20% { transform: translate(96px, 0); }
+  40%, 100% { transform: translate(144px, 27px); }
+}
+
+@keyframes tetromino3 {
+  0% { transform: translate(144px, 27px); }
+  20%, 60% { transform: translate(96px, 54px); }
+  90%, 100% { transform: translate(48px, 27px); }
+}
+
+@keyframes tetromino4 {
+  0%, 60% { transform: translate(48px, 27px); }
+  90%, 100% { transform: translate(0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tetromino {
+    animation: none;
+  }
+}

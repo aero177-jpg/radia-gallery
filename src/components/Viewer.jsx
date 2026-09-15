@@ -38,6 +38,7 @@ import { registerTapListener } from '../utils/tapDetector';
 import ViewerEmptyState from './ViewerEmptyState.jsx';
 import UploadStatusOverlay from './UploadStatusOverlay.jsx';
 import R2UnlockState from './R2UnlockState.jsx';
+import TetrominoLoader from './TetrominoLoader.jsx';
 
 
 /** Tags that should not trigger keyboard shortcuts */
@@ -986,6 +987,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       </div>
       <div class="viewer-overlays">
         {dropOverlay}
+        {showSlowLoadingNotice && <TetrominoLoader />}
         {requiresR2Unlock && (
           <R2UnlockState
             sourceName={activeSource?.name}

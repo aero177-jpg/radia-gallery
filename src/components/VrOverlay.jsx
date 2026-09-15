@@ -11,6 +11,7 @@ import {
   faChevronRight,
   faCog,
   faSave,
+  faTrash,
   faSignOutAlt,
   faTh,
 } from '@fortawesome/free-solid-svg-icons';
@@ -25,6 +26,7 @@ import {
   loadPrevAsset,
 } from '../fileLoader';
 import {
+  clearCurrentVrView,
   exitVrSessionAndRefresh,
   getDefaultCurrentVrFarClip,
   getDefaultCurrentVrNearClip,
@@ -34,6 +36,7 @@ import {
   refreshVrBaseCalibration,
   setCurrentVrFarClip,
   setCurrentVrNearClip,
+  setVrPassthroughEnabled,
 } from '../vrMode';
 import { saveCustomVrView, saveViewCustomVrView, saveVrFarClip, saveVrNearClip } from '../fileStorage';
 import {
@@ -118,6 +121,7 @@ function VrOverlay() {
   const vrBaseZoom = useStore((state) => state.vrBaseZoom);
   const vrBaseScale = useStore((state) => state.vrBaseScale);
   const vrResolutionScale = useStore((state) => state.vrResolutionScale);
+  const vrPassthroughEnabled = useStore((state) => state.vrPassthroughEnabled);
   const setVrBaseHeight = useStore((state) => state.setVrBaseHeight);
   const setVrHorizontalOffset = useStore((state) => state.setVrHorizontalOffset);
   const setVrBaseZoom = useStore((state) => state.setVrBaseZoom);
@@ -373,6 +377,41 @@ function VrOverlay() {
     }
   }, [currentAsset]);
 
+  const handleClearVrView = useCallback(async () => {
+    if (!currentAsset || !hasSavedVrView) return;
+
+    const baseName = currentAsset.baseAssetName || currentAsset.name;
+    const cacheKeyId =
+      currentAsset.cacheKey || currentAsset.baseAssetId || currentAsset.id;
+    const currentViewId = currentAsset.viewId;
+
+    try {
+      if (baseName && baseName !== '-') {
+        if (currentViewId) {
+          await saveViewCustomVrView(baseName, currentViewId, undefined);
+        } else {
+          await saveCustomVrView(baseName, undefined);
+        }
+      }
+
+      if (cacheKeyId) {
+        if (currentViewId) {
+          clearViewCustomVrViewInCache(cacheKeyId, currentViewId);
+        } else {
+          clearCustomVrViewInCache(cacheKeyId);
+        }
+      }
+
+      clearCurrentVrView();
+      setSaveStatus('cleared');
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch (err) {
+      console.warn('[VrOverlay] Failed to clear VR view:', err);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus(null), 3000);
+    }
+  }, [currentAsset, hasSavedVrView]);
+
   if (!vrSessionActive) return null;
 
   return (
@@ -408,24 +447,36 @@ function VrOverlay() {
           )}
 
           {showVrViewControls ? (
-            <button
-              class={`vr-overlay__save-btn ${saveStatus === 'saved' ? 'is-saved' : ''} ${saveStatus === 'error' ? 'is-error' : ''}`}
-              onClick={handleSaveVrView}
-              disabled={saveStatus === 'saving'}
-              aria-label="Save VR view"
-              title="Save current VR model position, rotation and scale"
-            >
-              <FontAwesomeIcon icon={faSave} />
-              <span>
-                {saveStatus === 'saving'
-                  ? 'Saving…'
-                  : saveStatus === 'saved'
-                    ? 'Saved!'
-                    : saveStatus === 'error'
-                      ? 'Error'
-                      : 'Save VR View'}
-              </span>
-            </button>
+            <div class="vr-overlay__save-actions">
+              <button
+                class={`vr-overlay__save-btn ${saveStatus === 'saved' ? 'is-saved' : ''} ${saveStatus === 'error' ? 'is-error' : ''}`}
+                onClick={handleSaveVrView}
+                disabled={saveStatus === 'saving'}
+                aria-label="Save VR view"
+                title="Save current VR model position, rotation and scale"
+              >
+                <FontAwesomeIcon icon={faSave} />
+                <span>
+                  {saveStatus === 'saving'
+                    ? 'Saving…'
+                    : saveStatus === 'saved'
+                      ? 'Saved!'
+                      : saveStatus === 'error'
+                        ? 'Error'
+                        : 'Save VR View'}
+                </span>
+              </button>
+              <button
+                class="vr-overlay__clear-save-btn"
+                onClick={handleClearVrView}
+                disabled={!hasSavedVrView || saveStatus === 'saving'}
+                aria-label="Clear saved VR view"
+                title="Remove the saved VR view for this model or custom camera pose"
+              >
+                <FontAwesomeIcon icon={faTrash} />
+                <span>Clear Saved View</span>
+              </button>
+            </div>
           ) : hasMultipleAssets ? (
             <div class="vr-overlay__nav-spacer" aria-hidden="true" />
           ) : null}
@@ -531,6 +582,21 @@ function VrOverlay() {
               aria-label="XR resolution scale"
               title="Set XR render resolution for the next VR session; exit and re-enter to apply"
             />
+          </div>
+
+          <div class="vr-overlay__slider-row">
+            <div class="vr-overlay__slider-header">
+              <span class="vr-overlay__slider-label">Passthrough</span>
+              <button
+                class={`vr-overlay__toggle ${vrPassthroughEnabled ? 'is-on' : 'is-off'}`}
+                type="button"
+                onClick={() => setVrPassthroughEnabled(!vrPassthroughEnabled)}
+                aria-pressed={vrPassthroughEnabled}
+                title={vrPassthroughEnabled ? 'Use chroma green VR background' : 'Use black VR background'}
+              >
+                {vrPassthroughEnabled ? 'Green' : 'Black'}
+              </button>
+            </div>
           </div>
 
           <div class="vr-overlay__slider-row">

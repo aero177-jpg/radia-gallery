@@ -33,6 +33,8 @@ import { resetLandingView } from '../utils/resetLandingView.js';
 import BottomControls from './BottomControls';
 import VrOverlay from './VrOverlay';
 import useMobileState from '../utils/useMobileState';
+import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled } from '../immersiveMode';
+import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport';
 import { fadeInViewer, fadeOutViewer, restoreViewerVisibility } from '../utils/viewerFade';
 import useDemoCollections from './useDemoCollections';
 
@@ -347,18 +349,35 @@ function App() {
   useEffect(() => {
     const viewerEl = document.getElementById('viewer');
     if (!viewerEl) return;
+    let disposed = false;
     
     initViewer(viewerEl);
     startRenderLoop();
     void initVrSupport(viewerEl);
     setViewerReady(true);
+
+    if (supportsImmersiveControls()) {
+      const store = useStore.getState();
+      setTouchPanEnabled(true);
+      setImmersiveSensitivityMultiplier(store.immersiveSensitivity);
+      void enableImmersiveMode().then((enabled) => {
+        if (disposed) {
+          if (enabled) disableImmersiveMode();
+          return;
+        }
+        store.setImmersiveMode(enabled);
+      });
+    }
     
     // Handle window resize
     window.addEventListener('resize', resize);
     resize();
     
     return () => {
+      disposed = true;
       window.removeEventListener('resize', resize);
+      disableImmersiveMode();
+      useStore.getState().setImmersiveMode(false);
       void disposeVrSupport();
       suspendRenderLoop();
     };
