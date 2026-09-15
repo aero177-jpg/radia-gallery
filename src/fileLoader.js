@@ -746,8 +746,30 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     viewerEl.classList.add('slide-out');
   }
 
+  if (!wasAlreadyCached) {
+    viewerEl.classList.add("loading");
+    store.setIsLoading(true);
+    store.setStatus("Preparing splat...");
+  }
+
+  let lastProgressAt = 0;
+  let lastProgressStage = null;
+
   // Preload entry early (reused later to avoid duplicate loads)
-  const entryPromise = ensureSplatEntry(asset);
+  const entryPromise = ensureSplatEntry(asset, {
+    onProgress: (progress) => {
+      if (loadGeneration !== thisGeneration) return;
+
+      const now = performance.now();
+      const stageChanged = progress.stage !== lastProgressStage;
+      const completed = Number.isFinite(progress.total) && progress.total > 0 && progress.loaded >= progress.total;
+      if (!stageChanged && !completed && now - lastProgressAt < 100) return;
+
+      lastProgressAt = now;
+      lastProgressStage = progress.stage;
+      store.setLoadingProgress(progress);
+    },
+  });
   let aspectApplied = false;
   
   // For transitions (slides or random asset clicks), start fade/slide-out and entry prep in parallel
@@ -831,13 +853,6 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       if (pageEl) {
         pageEl.classList.remove("has-glow");
       }
-    }
-
-    // Only show loading overlay for non-cached loads
-    if (!wasAlreadyCached) {
-      viewerEl.classList.add("loading");
-      store.setIsLoading(true);
-      store.setStatus("Preparing splat...");
     }
 
     const assetList = getAssetList();

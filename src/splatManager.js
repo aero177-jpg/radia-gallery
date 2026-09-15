@@ -70,7 +70,9 @@ const ensureAssetFile = async (asset) => {
   throw new Error("Asset has no file and no source");
 };
 
-const createEntry = async (asset) => {
+const createEntry = async (asset, { onProgress } = {}) => {
+  onProgress?.({ stage: 'file', message: 'Opening splat file...' });
+
   // Get file - may need to load from storage source
   const file = await ensureAssetFile(asset);
   if (!file) {
@@ -89,10 +91,13 @@ const createEntry = async (asset) => {
     throw err;
   }
 
+  onProgress?.({ stage: 'file', message: 'Reading splat file...', loaded: 0, total: file.size });
   const bytes = new Uint8Array(await file.arrayBuffer());
+  onProgress?.({ stage: 'file', message: 'Splat file ready', loaded: file.size, total: file.size });
 
   let cameraMetadata = null;
   try {
+    onProgress?.({ stage: 'metadata', message: 'Reading scene metadata...' });
     cameraMetadata = await formatHandler.loadMetadata({ file, bytes });
   } catch (err) {
     console.warn(`[SplatManager] Failed to parse metadata for ${asset.name}:`, err);
@@ -122,7 +127,21 @@ const createEntry = async (asset) => {
     store.setStatus("Building runtime LoD tree...");
   }
 
-  const mesh = await formatHandler.loadData({ file, bytes, runtimeLodEnabled });
+  onProgress?.({ stage: 'spark', message: runtimeLodEnabled ? 'Building runtime LoD tree...' : 'Preparing splats...' });
+  const mesh = await formatHandler.loadData({
+    file,
+    bytes,
+    runtimeLodEnabled,
+    onProgress: (event) => {
+      onProgress?.({
+        stage: 'spark',
+        message: runtimeLodEnabled ? 'Building runtime LoD tree...' : 'Preparing splats...',
+        loaded: Number.isFinite(event?.loaded) ? event.loaded : undefined,
+        total: Number.isFinite(event?.total) && event.total > 0 ? event.total : undefined,
+      });
+    },
+  });
+  onProgress?.({ stage: 'renderer', message: 'Configuring scene...' });
   mesh.maxSh = store.debugSplatShLevel;
   mesh.updateGenerator?.();
 
@@ -187,13 +206,13 @@ export const isSplatCached = (asset) => {
   return cache.has(cacheKey);
 };
 
-export const ensureSplatEntry = async (asset) => {
+export const ensureSplatEntry = async (asset, options = {}) => {
   const cacheKey = getCacheKey(asset);
   if (!cacheKey) return null;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   if (loading.has(cacheKey)) return loading.get(cacheKey);
 
-  const promise = createEntry(asset)
+  const promise = createEntry(asset, options)
     .then((entry) => {
       cache.set(cacheKey, entry);
       loading.delete(cacheKey);

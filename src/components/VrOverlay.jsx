@@ -141,7 +141,7 @@ function VrOverlay() {
     currentAsset?.displayName || currentAsset?.name || 'Unknown asset';
   const hasSavedVrView = hasSavedVrViewForAsset(currentAsset);
   const hasSavedVrPivot = hasSavedVrPivotOverrideForAsset(currentAsset);
-  const showCustomVrViewControls = customMetadataAvailable;
+  const showVrViewControls = Boolean(currentAsset);
 
   // Reset save status when asset changes
   useEffect(() => {
@@ -384,7 +384,7 @@ function VrOverlay() {
             <p class="vr-overlay__asset-name" title={displayName}>
               {currentAssetIndex + 1} / {assets.length} &mdash; {displayName}
             </p>
-            {showCustomVrViewControls && (
+            {showVrViewControls && (
               <span
                 class={`vr-overlay__pose-indicator ${hasSavedVrView ? 'is-saved' : 'is-unsaved'}`}
                 title={hasSavedVrView ? 'A VR view is saved for this camera pose' : 'No VR view is saved for this camera pose yet'}
@@ -407,7 +407,7 @@ function VrOverlay() {
             </button>
           )}
 
-          {showCustomVrViewControls ? (
+          {showVrViewControls ? (
             <button
               class={`vr-overlay__save-btn ${saveStatus === 'saved' ? 'is-saved' : ''} ${saveStatus === 'error' ? 'is-error' : ''}`}
               onClick={handleSaveVrView}
@@ -650,7 +650,7 @@ function VrOverlay() {
           </p>
         </div>
 
-        {showCustomVrViewControls && (
+        {customMetadataAvailable && (
           <div class="vr-overlay__hint">
             <p>
               Scenes with multiple custom camera poses do not align correctly in VR. As a workaround,

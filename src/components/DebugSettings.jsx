@@ -42,6 +42,8 @@ function DebugSettings() {
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
   const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
   const setDebugRuntimeLodEnabled = useStore((state) => state.setDebugRuntimeLodEnabled);
+  const loadingInfoEnabled = useStore((state) => state.loadingInfoEnabled);
+  const setLoadingInfoEnabled = useStore((state) => state.setLoadingInfoEnabled);
   const debugSplatShLevel = useStore((state) => state.debugSplatShLevel);
   const setDebugSplatShLevel = useStore((state) => state.setDebugSplatShLevel);
   const debugLodSplatCount = useStore((state) => state.debugLodSplatCount);
@@ -487,6 +489,18 @@ function DebugSettings() {
               type="checkbox"
               checked={showFps}
               onChange={handleFpsToggle}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Loading info</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={loadingInfoEnabled}
+              onChange={(event) => setLoadingInfoEnabled(event.target.checked)}
             />
             <span class="switch-track" aria-hidden="true" />
           </label>

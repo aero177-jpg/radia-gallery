@@ -1005,17 +1005,18 @@ const tryApplySavedVrView = (assetOverride = null) => {
   const store = useStore.getState();
   const { assets, currentAssetIndex } = store;
   const asset = assetOverride || (currentAssetIndex >= 0 ? assets[currentAssetIndex] : null);
-  if (!asset) return;
+  if (!asset) return false;
 
   const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
   const cache = getSplatCache();
   const entry = cache?.get(cacheKey);
-  if (!entry?.storedSettings) return;
+  if (!entry?.storedSettings) return false;
 
   const vrView = resolveEffectiveCustomVrView(entry.storedSettings, asset);
-  if (!vrView) return;
+  if (!vrView) return false;
 
   applyVrView(vrView);
+  return Array.isArray(vrView.scale) && vrView.scale.length === 3 && vrView.scale.every(Number.isFinite);
 };
 
 const syncVrStateToCurrentAsset = (assetOverride = null, options = {}) => {
@@ -1038,8 +1039,10 @@ const syncVrStateToCurrentAsset = (assetOverride = null, options = {}) => {
   activeVrPivotLocalPoint = getSavedVrPivotLocalPointForAsset(asset);
   setVrPivotStatusMessage("");
 
-  tryApplySavedVrView(asset);
-  applyVrBaseCalibration();
+  const hasAuthoritativeVrView = tryApplySavedVrView(asset);
+  if (!hasAuthoritativeVrView) {
+    applyVrBaseCalibration();
+  }
   tryApplySavedVrClipPlanes(asset);
 
   activeVrBaseAssetId = nextBaseAssetId;
@@ -1302,13 +1305,14 @@ export const getDefaultCurrentVrFarClip = () => getDefaultVrFarClip();
 
 /**
  * Returns the current VR model transform state for saving.
- * Captures position, quaternion, and scale relative to the VR baseline.
+ * Captures the authoritative mesh transform plus the interactive scale value.
  * Returns null if not in a VR session or no mesh is loaded.
  */
 export const getCurrentVrModelTransform = () => {
   if (!currentMesh || !useStore.getState().vrSessionActive) return null;
 
   const pos = currentMesh.position.toArray();
+  const modelScale = currentMesh.scale.toArray();
   const quat = [
     currentMesh.quaternion.x,
     currentMesh.quaternion.y,
@@ -1317,13 +1321,13 @@ export const getCurrentVrModelTransform = () => {
   ];
   const scale = useStore.getState().vrModelScale || 1;
 
-  return { position: pos, quaternion: quat, vrModelScale: scale };
+  return { position: pos, quaternion: quat, scale: modelScale, vrModelScale: scale };
 };
 
 /**
  * Applies a saved VR view transform to the current mesh.
  * Called after VR session starts when a saved VR view exists for the asset.
- * @param {Object} vrView - {position:[x,y,z], quaternion:[x,y,z,w], vrModelScale:number}
+ * @param {Object} vrView - {position:[x,y,z], quaternion:[x,y,z,w], scale:[x,y,z], vrModelScale:number}
  */
 export const applyVrView = (vrView) => {
   if (!currentMesh || !vrView) return;
@@ -1342,7 +1346,13 @@ export const applyVrView = (vrView) => {
     if (initialModelQuaternion) initialModelQuaternion.copy(currentMesh.quaternion);
   }
 
-  if (typeof vrView.vrModelScale === 'number' && vrView.vrModelScale > 0) {
+  if (Array.isArray(vrView.scale) && vrView.scale.length === 3 && vrView.scale.every(Number.isFinite)) {
+    currentMesh.scale.fromArray(vrView.scale);
+    if (initialModelScale) initialModelScale.copy(currentMesh.scale);
+    useStore.getState().setVrModelScale(
+      typeof vrView.vrModelScale === 'number' && vrView.vrModelScale > 0 ? vrView.vrModelScale : 1,
+    );
+  } else if (typeof vrView.vrModelScale === 'number' && vrView.vrModelScale > 0) {
     const store = useStore.getState();
     const currentScale = store.vrModelScale || 1;
     const ratio = vrView.vrModelScale / currentScale;

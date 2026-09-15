@@ -294,7 +294,7 @@ export const saveViewAutoOrbitSettings = async (fileName, viewId, settings) => {
 /**
  * Saves a custom VR view (model transform) for a file.
  * @param {string} fileName - File name
- * @param {Object} customVrView - {position, quaternion, vrModelScale}
+ * @param {Object} customVrView - {position, quaternion, scale, vrModelScale}
  * @returns {Promise<boolean>} Success status
  */
 export const saveCustomVrView = async (fileName, customVrView) => {
@@ -340,7 +340,7 @@ export const saveVrPivotLocalPoint = async (fileName, vrPivotLocalPoint) => {
  * `viewCustomVrViews` map keyed by viewId.
  * @param {string} fileName - Base file name
  * @param {string} viewId - View identifier
- * @param {Object} customVrView - {position, quaternion, vrModelScale}
+ * @param {Object} customVrView - {position, quaternion, scale, vrModelScale}
  * @returns {Promise<boolean>} Success status
  */
 export const saveViewCustomVrView = async (fileName, viewId, customVrView) => {

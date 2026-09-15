@@ -85,6 +85,8 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   const setUploadState = useStore((state) => state.setUploadState);
   const isLoading = useStore((state) => state.isLoading);
   const status = useStore((state) => state.status);
+  const loadingInfoEnabled = useStore((state) => state.loadingInfoEnabled);
+  const loadingProgress = useStore((state) => state.loadingProgress);
   const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
   const assets = useStore((state) => state.assets);
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
@@ -278,6 +280,21 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   }, [metadataMissing, setViewerControlsDimmed]);
 
   const currentAsset = currentAssetIndex >= 0 ? assets[currentAssetIndex] : null;
+  const loadingPercent = Number.isFinite(loadingProgress?.loaded)
+    && Number.isFinite(loadingProgress?.total)
+    && loadingProgress.total > 0
+    ? Math.max(0, Math.min(100, Math.round((loadingProgress.loaded / loadingProgress.total) * 100)))
+    : null;
+  const formatProgressBytes = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return null;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+  const loadedBytes = formatProgressBytes(loadingProgress?.loaded);
+  const totalBytes = formatProgressBytes(loadingProgress?.total);
+  const loadingDetail = loadingPercent != null
+    ? `${loadingPercent}%${loadedBytes && totalBytes ? ` · ${loadedBytes} of ${totalBytes}` : ''}`
+    : null;
 
   useEffect(() => {
     if (!hideForInitialCollectionLoad) return;
@@ -1028,12 +1045,25 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
             </button>
           </div>
         )}
-        {showSlowLoadingNotice && (
-          <div className="metadata-warning loading-status-notice">
+        {((loadingInfoEnabled && isLoading) || showSlowLoadingNotice) && (
+          <div className={`metadata-warning loading-status-notice${loadingInfoEnabled ? ' is-verbose' : ''}`}>
             <span className="large-file-spinner" aria-hidden="true" />
             <span>
-              <strong>{status || 'Loading...'}</strong>
-              {debugRuntimeLodEnabled && status?.includes('LoD') && (
+              <strong>{loadingInfoEnabled ? (loadingProgress?.message || status || 'Loading...') : (status || 'Loading...')}</strong>
+              {loadingInfoEnabled && loadingDetail && <small>{loadingDetail}</small>}
+              {loadingInfoEnabled && (
+                <span
+                  className={`loading-progress-track${loadingPercent == null ? ' is-indeterminate' : ''}`}
+                  role="progressbar"
+                  aria-label={loadingProgress?.message || 'Loading splat'}
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow={loadingPercent ?? undefined}
+                >
+                  <span className="loading-progress-fill" style={loadingPercent != null ? { width: `${loadingPercent}%` } : undefined} />
+                </span>
+              )}
+              {debugRuntimeLodEnabled && (loadingProgress?.stage === 'spark' || status?.includes('LoD')) && (
                 <small>Building the detail hierarchy in a worker. Large scenes can take several seconds per million splats.</small>
               )}
             </span>

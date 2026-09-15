@@ -1322,6 +1322,38 @@ input[type="checkbox"]:disabled:checked {
   line-height: 1.35;
 }
 
+.loading-status-notice.is-verbose {
+  width: min(360px, calc(100% - 24px));
+}
+
+.loading-progress-track {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  margin-top: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(230, 236, 248, 0.16);
+}
+
+.loading-progress-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: rgba(110, 231, 255, 0.9);
+  transition: width 0.12s ease-out;
+}
+
+.loading-progress-track.is-indeterminate .loading-progress-fill {
+  width: 35%;
+  animation: loading-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes loading-progress-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(310%); }
+}
+
 .fov-label {
   display: inline-flex;
   align-items: center;

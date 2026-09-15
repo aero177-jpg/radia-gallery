@@ -80,6 +80,7 @@ const DEBUG_LOD_SPLAT_COUNT_KEY = 'debugLodSplatCount';
 const DEBUG_LOD_RENDER_SCALE_KEY = 'debugLodRenderScale';
 const DEBUG_MIN_SORT_INTERVAL_KEY = 'debugMinSortIntervalMs';
 const DEBUG_RENDER_STATS_KEY = 'debugShowRenderStats';
+const LOADING_INFO_KEY = 'loadingInfoEnabled';
 
 const UI_PREFERENCES_KEY = 'ui-preferences';
 
@@ -299,6 +300,7 @@ const persistedLodSplatCount = getPersistedNumber(DEBUG_LOD_SPLAT_COUNT_KEY, 500
 const persistedLodRenderScale = getPersistedNumber(DEBUG_LOD_RENDER_SCALE_KEY, 1);
 const persistedMinSortIntervalMs = getPersistedNumber(DEBUG_MIN_SORT_INTERVAL_KEY, 0);
 const persistedShowRenderStats = getPersistedBoolean(DEBUG_RENDER_STATS_KEY, false);
+const persistedLoadingInfo = getPersistedBoolean(LOADING_INFO_KEY, false);
 
 const persistedUiPrefs = normalizeUiPrefs(getPersistedJson(UI_PREFERENCES_KEY, null));
 
@@ -414,6 +416,7 @@ export const useStore = create(
   // Status
   status: 'Waiting for file...',
   isLoading: false,
+  loadingProgress: null,
 
   // Upload progress (global overlay)
   isUploading: false,
@@ -467,6 +470,7 @@ export const useStore = create(
   debugLodRenderScale: Math.max(0.5, persistedLodRenderScale),
   debugMinSortIntervalMs: Math.max(0, persistedMinSortIntervalMs),
   debugShowRenderStats: persistedShowRenderStats,
+  loadingInfoEnabled: persistedLoadingInfo,
   qualityPreset: (QUALITY_PRESETS[persistedQualityPreset] || persistedQualityPreset === 'debug-custom')
     ? persistedQualityPreset
     : 'default',
@@ -724,7 +728,13 @@ export const useStore = create(
   },
   
   /** Sets loading state */
-  setIsLoading: (isLoading) => set({ isLoading }),
+  setIsLoading: (isLoading) => set({
+    isLoading,
+    ...(!isLoading ? { loadingProgress: null } : {}),
+  }),
+
+  /** Updates transient loading detail without adding noisy log entries */
+  setLoadingProgress: (loadingProgress) => set({ loadingProgress }),
   
   /** Adds a timestamped log entry */
   addLog: (message) => {
@@ -882,6 +892,16 @@ export const useStore = create(
       console.warn('[Store] Failed to persist debugRuntimeLodEnabled', err);
     }
     set({ debugRuntimeLodEnabled: value });
+  },
+
+  setLoadingInfoEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(LOADING_INFO_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist loadingInfoEnabled', err);
+    }
+    set({ loadingInfoEnabled: value });
   },
 
   setDebugSplatShLevel: (level) => {

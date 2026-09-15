@@ -112,12 +112,13 @@ export const sogFormat = {
   id: "sog",
   label: "SOG",
   extensions: ["sog"],
-  async loadData({ file, bytes, runtimeLodEnabled = false }) {
+  async loadData({ file, bytes, runtimeLodEnabled = false, onProgress }) {
     const mesh = new SplatMesh({
       fileBytes: bytes,
       fileType: SplatFileType.PCSOGSZIP,
       fileName: file?.name,
       lod: runtimeLodEnabled,
+      onProgress,
     });
     await mesh.initialized;
     return mesh;
