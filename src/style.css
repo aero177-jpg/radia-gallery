@@ -394,6 +394,11 @@ input[type="checkbox"]:disabled:checked {
   pointer-events: none;
 }
 
+.viewer.tetromino-loader-preview canvas {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .viewer.initial-collection-empty {
   opacity: 0;
   background: transparent;

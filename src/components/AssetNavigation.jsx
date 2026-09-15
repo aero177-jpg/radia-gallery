@@ -113,7 +113,7 @@ function AssetNavigation({ onOpenSlideshowOptions }) {
           ? (autoOrbitPlaying ? 'Pause auto orbit (hold for options)' : 'Start auto orbit (hold for options)')
           : (slideshowPlaying ? 'Pause slideshow (hold for options)' : 'Play slideshow (hold for options)')}
       >
-        {autoOrbitEnabled ? 'O' : <FontAwesomeIcon icon={slideshowPlaying ? faPause : faPlay} />}
+        <FontAwesomeIcon icon={(autoOrbitEnabled ? autoOrbitPlaying : slideshowPlaying) ? faPause : faPlay} />
       </button>
       {hasMultipleAssets && (
         <button

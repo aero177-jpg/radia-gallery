@@ -709,7 +709,7 @@ function DebugSettings() {
             <span>Spark experiments</span>
           </div>
 
-          <p class="settings-help">These controls are intended for comparing performance. Runtime LoD rebuilds the current scene in a worker and may take several seconds per million splats.</p>
+          <p class="settings-help">Runtime LoD rebuilds the current scene and may take several seconds per million splats.</p>
 
           <div class="control-row">
           <span class="control-label">Runtime LoD</span>

@@ -121,6 +121,11 @@ const createEntry = async (asset, { onProgress } = {}) => {
   }
 
   const store = useStore.getState();
+  const isMlSharpSplat = Boolean(cameraMetadata?.intrinsics);
+  if (isMlSharpSplat && store.debugRuntimeLodEnabled) {
+    store.setDebugRuntimeLodEnabled(false);
+    store.addLog('Runtime LoD disabled for ML-Sharp splat');
+  }
   const runtimeLodEnabled = Boolean(store.debugRuntimeLodEnabled);
   const loadStartedAt = performance.now();
   if (runtimeLodEnabled) {

@@ -56,6 +56,7 @@ const CAMERA_LOCK_HOLD_MS = 180;
 const CAMERA_LOCK_ORBIT_SPEED = 1.25;
 const CAMERA_LOCK_MIN_POLAR_ANGLE = Math.PI * 0.05;
 const CAMERA_LOCK_MAX_POLAR_ANGLE = Math.PI * 0.95;
+const FORCE_TETROMINO_LOADER_PREVIEW = false;
 
 /**
  * Checks if an event target is an input element.
@@ -516,8 +517,8 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
           const orbitStep = CAMERA_LOCK_ORBIT_SPEED * speedMultiplier * dt;
           if (activeKeys.has('KeyD')) orbit.theta += orbitStep;
           if (activeKeys.has('KeyA')) orbit.theta -= orbitStep;
-          if (activeKeys.has('KeyE')) orbit.phi = Math.max(CAMERA_LOCK_MIN_POLAR_ANGLE, orbit.phi - orbitStep);
-          if (activeKeys.has('KeyQ')) orbit.phi = Math.min(CAMERA_LOCK_MAX_POLAR_ANGLE, orbit.phi + orbitStep);
+          if (activeKeys.has('KeyQ')) orbit.phi = Math.max(CAMERA_LOCK_MIN_POLAR_ANGLE, orbit.phi - orbitStep);
+          if (activeKeys.has('KeyE')) orbit.phi = Math.min(CAMERA_LOCK_MAX_POLAR_ANGLE, orbit.phi + orbitStep);
           camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(orbit));
         }
 
@@ -551,8 +552,8 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
         if (activeKeys.has('KeyS')) movement.sub(forward);
         if (activeKeys.has('KeyD')) movement.add(right);
         if (activeKeys.has('KeyA')) movement.sub(right);
-        if (activeKeys.has('KeyE')) movement.add(up);
-        if (activeKeys.has('KeyQ')) movement.sub(up);
+        if (activeKeys.has('KeyQ')) movement.add(up);
+        if (activeKeys.has('KeyE')) movement.sub(up);
 
         if (movement.lengthSq() <= 0) return;
         movement.normalize();
@@ -981,13 +982,13 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
   return (
     <div class={`viewer-shell ${expandedViewer ? 'is-expanded' : ''}`} ref={viewerRef}>
-      <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''} ${hideForInitialCollectionLoad && !showEmptyState ? 'initial-collection-empty' : ''} ${expandedViewer ? 'is-expanded' : ''} ${transitionSpeed === 'snappy' ? 'speed-snappy' : ''}`}>
+      <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''} ${hideForInitialCollectionLoad && !showEmptyState ? 'initial-collection-empty' : ''} ${expandedViewer ? 'is-expanded' : ''} ${transitionSpeed === 'snappy' ? 'speed-snappy' : ''} ''}`}>
         <div class="loading-overlay">
         </div>
       </div>
       <div class="viewer-overlays">
         {dropOverlay}
-        {showSlowLoadingNotice && <TetrominoLoader />}
+        {(FORCE_TETROMINO_LOADER_PREVIEW || showSlowLoadingNotice) && <TetrominoLoader />}
         {requiresR2Unlock && (
           <R2UnlockState
             sourceName={activeSource?.name}
@@ -1066,7 +1067,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
                 </span>
               )}
               {debugRuntimeLodEnabled && (loadingProgress?.stage === 'spark' || status?.includes('LoD')) && (
-                <small>Building the detail hierarchy in a worker. Large scenes can take several seconds per million splats.</small>
+                <small>Building the detail hierarchy. Large scenes can take several seconds per million splats.</small>
               )}
             </span>
           </div>

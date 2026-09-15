@@ -11,6 +11,7 @@ function TetrominoLoader() {
       aria-label="Loading"
       style={{ '--tetromino-theme-color': appBgColor }}
     >
+      <div class="tetromino-platform" aria-hidden="true" />
       <div class="tetrominos" aria-hidden="true">
         <div class="tetromino box1" />
         <div class="tetromino box2" />
