@@ -91,16 +91,27 @@ const createEntry = async (asset, { onProgress } = {}) => {
     throw err;
   }
 
-  onProgress?.({ stage: 'file', message: 'Reading splat file...', loaded: 0, total: file.size });
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  onProgress?.({ stage: 'file', message: 'Splat file ready', loaded: file.size, total: file.size });
+  const useNativeStream = typeof file.openStream === 'function';
+  let bytes = null;
+  let stream = null;
+
+  if (useNativeStream) {
+    onProgress?.({ stage: 'file', message: 'Streaming splat file...', loaded: 0, total: file.size });
+    stream = await file.openStream();
+  } else {
+    onProgress?.({ stage: 'file', message: 'Reading splat file...', loaded: 0, total: file.size });
+    bytes = new Uint8Array(await file.arrayBuffer());
+    onProgress?.({ stage: 'file', message: 'Splat file ready', loaded: file.size, total: file.size });
+  }
 
   let cameraMetadata = null;
-  try {
-    onProgress?.({ stage: 'metadata', message: 'Reading scene metadata...' });
-    cameraMetadata = await formatHandler.loadMetadata({ file, bytes });
-  } catch (err) {
-    console.warn(`[SplatManager] Failed to parse metadata for ${asset.name}:`, err);
+  if (bytes) {
+    try {
+      onProgress?.({ stage: 'metadata', message: 'Reading scene metadata...' });
+      cameraMetadata = await formatHandler.loadMetadata({ file, bytes });
+    } catch (err) {
+      console.warn(`[SplatManager] Failed to parse metadata for ${asset.name}:`, err);
+    }
   }
 
   // Try to load metadata from storage source
@@ -136,6 +147,8 @@ const createEntry = async (asset, { onProgress } = {}) => {
   const mesh = await formatHandler.loadData({
     file,
     bytes,
+    stream,
+    streamLength: useNativeStream ? file.size : undefined,
     runtimeLodEnabled,
     onProgress: (event) => {
       onProgress?.({

@@ -504,6 +504,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
       const activeKeys = movementKeysRef.current;
       const focusDistance = camera.position.distanceTo(controls.target);
+      const isFreeLook = useStore.getState().fileCustomAnimation?.autoOrbit?.mode === 'rotate';
       const baseSpeedMultiplier = CAMERA_MOVE_SPEED_MULTIPLIERS[
         useStore.getState().cameraMovementSpeed
       ] ?? CAMERA_MOVE_SPEED_MULTIPLIERS.default;
@@ -511,8 +512,20 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
         * (movementFastRef.current ? CAMERA_MOVE_FAST_MULTIPLIER : 1);
 
       if (cameraLockActiveRef.current) {
-        const orbitOffset = camera.position.clone().sub(controls.target);
-        if (orbitOffset.lengthSq() > 1e-6) {
+        if (isFreeLook && focusDistance > 1e-6) {
+          const direction = controls.target.clone().sub(camera.position).normalize();
+          const orbitStep = CAMERA_LOCK_ORBIT_SPEED * speedMultiplier * dt;
+          const cameraRight = new THREE.Vector3().crossVectors(direction, up).normalize();
+          if (activeKeys.has('KeyD')) direction.applyAxisAngle(up, -orbitStep);
+          if (activeKeys.has('KeyA')) direction.applyAxisAngle(up, orbitStep);
+          if (cameraRight.lengthSq() > 1e-6) {
+            if (activeKeys.has('KeyQ')) direction.applyAxisAngle(cameraRight, orbitStep);
+            if (activeKeys.has('KeyE')) direction.applyAxisAngle(cameraRight, -orbitStep);
+          }
+          controls.target.copy(camera.position).addScaledVector(direction, focusDistance);
+        } else {
+          const orbitOffset = camera.position.clone().sub(controls.target);
+          if (orbitOffset.lengthSq() > 1e-6) {
           const orbit = new THREE.Spherical().setFromVector3(orbitOffset);
           const orbitStep = CAMERA_LOCK_ORBIT_SPEED * speedMultiplier * dt;
           if (activeKeys.has('KeyD')) orbit.theta += orbitStep;
@@ -520,20 +533,20 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
           if (activeKeys.has('KeyQ')) orbit.phi = Math.max(CAMERA_LOCK_MIN_POLAR_ANGLE, orbit.phi - orbitStep);
           if (activeKeys.has('KeyE')) orbit.phi = Math.min(CAMERA_LOCK_MAX_POLAR_ANGLE, orbit.phi + orbitStep);
           camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(orbit));
+          }
         }
 
-        camera.getWorldDirection(forward).setY(0);
+        camera.getWorldDirection(forward).normalize();
         if (forward.lengthSq() > 1e-6) {
-          forward.normalize();
-          const trackSpeed = Math.max(0.1, focusDistance * 0.9) * speedMultiplier;
-          const trackDelta = forward.multiplyScalar(trackSpeed * dt);
+          const moveSpeed = Math.max(0.1, focusDistance * 0.9) * speedMultiplier;
+          const moveDelta = forward.multiplyScalar(moveSpeed * dt);
           if (activeKeys.has('KeyW')) {
-            camera.position.add(trackDelta);
-            controls.target.add(trackDelta);
+            camera.position.add(moveDelta);
+            controls.target.add(moveDelta);
           }
           if (activeKeys.has('KeyS')) {
-            camera.position.sub(trackDelta);
-            controls.target.sub(trackDelta);
+            camera.position.sub(moveDelta);
+            controls.target.sub(moveDelta);
           }
         }
         camera.lookAt(controls.target);
@@ -548,14 +561,21 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
         }
 
         const movement = new THREE.Vector3();
-        if (activeKeys.has('KeyW')) movement.add(forward);
-        if (activeKeys.has('KeyS')) movement.sub(forward);
+        const horizontalForward = forward.setY(0);
+        if (horizontalForward.lengthSq() > 1e-6) {
+          horizontalForward.normalize();
+          if (activeKeys.has('KeyW')) movement.add(horizontalForward);
+          if (activeKeys.has('KeyS')) movement.sub(horizontalForward);
+        }
         if (activeKeys.has('KeyD')) movement.add(right);
         if (activeKeys.has('KeyA')) movement.sub(right);
         if (activeKeys.has('KeyQ')) movement.add(up);
         if (activeKeys.has('KeyE')) movement.sub(up);
 
-        if (movement.lengthSq() <= 0) return;
+        if (movement.lengthSq() <= 0) {
+          movementFrameRef.current = requestAnimationFrame(stepCameraMovement);
+          return;
+        }
         movement.normalize();
         const focusDistance = camera.position.distanceTo(controls.target);
         const moveSpeed = Math.max(0.1, focusDistance * 0.9)
@@ -764,6 +784,62 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
     renderer.domElement.addEventListener('dblclick', handleDoubleClick);
 
+    let freeLookPointerId = null;
+    let freeLookPointerX = 0;
+    let freeLookPointerY = 0;
+
+    const isFreeLookActive = () => (
+      useStore.getState().fileCustomAnimation?.autoOrbit?.mode === 'rotate'
+    );
+
+    const handleFreeLookPointerDown = (event) => {
+      if (event.button !== 0 || event.pointerType !== 'mouse') return;
+      if (!isFreeLookActive() || !canUseMetadataCameraMovement()) return;
+      freeLookPointerId = event.pointerId;
+      freeLookPointerX = event.clientX;
+      freeLookPointerY = event.clientY;
+      renderer.domElement.setPointerCapture?.(event.pointerId);
+    };
+
+    const handleFreeLookPointerMove = (event) => {
+      if (event.pointerId !== freeLookPointerId || !camera || !controls) return;
+
+      const deltaX = event.clientX - freeLookPointerX;
+      const deltaY = event.clientY - freeLookPointerY;
+      freeLookPointerX = event.clientX;
+      freeLookPointerY = event.clientY;
+      if (deltaX === 0 && deltaY === 0) return;
+
+      const focusDistance = camera.position.distanceTo(controls.target);
+      if (focusDistance <= 1e-6) return;
+      const direction = controls.target.clone().sub(camera.position).normalize();
+      const cameraUp = camera.up.clone().normalize();
+      const cameraRight = new THREE.Vector3().crossVectors(direction, cameraUp).normalize();
+      const sensitivity = controls.rotateSpeed * 0.005;
+      direction.applyAxisAngle(cameraUp, -deltaX * sensitivity);
+      if (cameraRight.lengthSq() > 1e-6) {
+        direction.applyAxisAngle(cameraRight, -deltaY * sensitivity);
+      }
+      controls.target.copy(camera.position).addScaledVector(direction, focusDistance);
+      camera.lookAt(controls.target);
+      camera.updateMatrixWorld();
+      controls.update();
+      updateDollyZoomBaselineFromCamera();
+      requestRender();
+    };
+
+    const handleFreeLookPointerUp = (event) => {
+      if (event.pointerId !== freeLookPointerId) return;
+      renderer.domElement.releasePointerCapture?.(event.pointerId);
+      freeLookPointerId = null;
+      handleAutoOrbitInputEnd();
+    };
+
+    renderer.domElement.addEventListener('pointerdown', handleFreeLookPointerDown);
+    renderer.domElement.addEventListener('pointermove', handleFreeLookPointerMove);
+    renderer.domElement.addEventListener('pointerup', handleFreeLookPointerUp);
+    renderer.domElement.addEventListener('pointercancel', handleFreeLookPointerUp);
+
     /**
      * Global keyboard shortcuts handler.
      * - T: Toggle side panel
@@ -905,6 +981,10 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
         renderer.domElement.removeEventListener('pointerup', handleLongPressPointerUp);
         renderer.domElement.removeEventListener('pointercancel', handleLongPressPointerCancel);
         renderer.domElement.removeEventListener('dblclick', handleDoubleClick);
+        renderer.domElement.removeEventListener('pointerdown', handleFreeLookPointerDown);
+        renderer.domElement.removeEventListener('pointermove', handleFreeLookPointerMove);
+        renderer.domElement.removeEventListener('pointerup', handleFreeLookPointerUp);
+        renderer.domElement.removeEventListener('pointercancel', handleFreeLookPointerUp);
       }
       if (wheelEndTimerRef.current) {
         clearTimeout(wheelEndTimerRef.current);

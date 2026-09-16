@@ -37,6 +37,7 @@ import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMulti
 import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport';
 import { fadeInViewer, fadeOutViewer, restoreViewerVisibility } from '../utils/viewerFade';
 import useDemoCollections from './useDemoCollections';
+import { initializeDesktopFileOpen } from '../desktopFileOpen.js';
 
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
@@ -104,6 +105,7 @@ function App() {
   });
   // Landing screen visibility (controls TitleCard fade-in/out)
   const [landingVisible, setLandingVisible] = useState(() => assets.length === 0 && !activeSourceId);
+  const [desktopFileOpening, setDesktopFileOpening] = useState(false);
   const [routingResolved, setRoutingResolved] = useState(() => {
     if (typeof window === 'undefined') return false;
     return isHomePath(window.location.pathname);
@@ -113,13 +115,14 @@ function App() {
     setRoutingResolved(true);
   }, []);
   const [hasDefaultSource, setHasDefaultSource] = useState(false);
-  const isLandingEmptyState = landingVisible && assets.length === 0 && !activeSourceId;
+  const isLandingEmptyState = landingVisible && !desktopFileOpening && assets.length === 0 && !activeSourceId;
   const showLandingOverlay = routingResolved && isLandingEmptyState;
   const showViewerUi = routingResolved && !isLandingEmptyState;
   
   // File input + storage dialog state for title card actions
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
   const [storageDialogInitialTier, setStorageDialogInitialTier] = useState(null);
+  const desktopDropRef = useRef(null);
 
   const [slideshowOptionsOpen, setSlideshowOptionsOpen] = useState(false);
 
@@ -340,7 +343,42 @@ function App() {
     setStatus,
     handleAssets,
     handleImages,
+    desktopDropRef,
   });
+
+  useEffect(() => {
+    if (!viewerReady) return;
+
+    let disposed = false;
+    let unlisten = () => {};
+
+    void initializeDesktopFileOpen(async (files) => {
+      try {
+        await handleAssets(files);
+      } finally {
+        setDesktopFileOpening(false);
+      }
+    }, () => {
+      setDesktopFileOpening(true);
+      setLandingVisible(false);
+    }, (isDragging) => {
+      desktopDropRef.current?.(isDragging);
+    }).then((cleanup) => {
+      if (disposed) {
+        cleanup();
+      } else {
+        unlisten = cleanup;
+      }
+    }).catch((error) => {
+      console.error('[Desktop] Native file open initialization failed:', error);
+      setStatus('Could not open the selected desktop file');
+    });
+
+    return () => {
+      disposed = true;
+      unlisten();
+    };
+  }, [handleAssets, setStatus, viewerReady]);
 
   /**
    * Initialize Three.js viewer on mount.
@@ -460,6 +498,10 @@ function App() {
 
   // Keep landingVisible in sync: show when no assets, hide when assets present
   useEffect(() => {
+    if (desktopFileOpening) {
+      setLandingVisible(false);
+      return;
+    }
     if (hasDefaultSource) {
       setLandingVisible(false);
       return;
@@ -469,7 +511,7 @@ function App() {
     } else if (activeSourceId) {
       setLandingVisible(false);
     }
-  }, [assets.length, activeSourceId, hasDefaultSource]);
+  }, [assets.length, activeSourceId, desktopFileOpening, hasDefaultSource]);
 
   useEffect(() => {
     if (!showLandingOverlay) return;

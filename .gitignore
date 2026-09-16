@@ -46,3 +46,7 @@ Thumbs.db
 *.swn
 
 android/
+
+# Tauri/Rust build output (recreated by `npm run desktop:build`)
+src-tauri/target/
+src-tauri/icons/

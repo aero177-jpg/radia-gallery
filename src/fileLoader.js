@@ -190,6 +190,7 @@ const DEFAULT_FILE_CUSTOM_ANIMATION = {
   autoOrbit: normalizeAutoOrbitSettings(),
 };
 const DEFAULT_FILE_ANNOTATION = '';
+const LARGE_ASSET_PRELOAD_LIMIT_BYTES = 256 * 1024 * 1024;
 
 export const normalizeFileCustomAnimationSettings = (customAnimationSettings) => {
   const slideType = VALID_FILE_SLIDE_TYPES.has(customAnimationSettings?.slideType)
@@ -242,7 +243,8 @@ const resolveSlideAmountWithPerFileRange = (mode, preset, transitionRangeKey, ph
   return Number.isFinite(amount) ? amount : undefined;
 };
 
-const isFile = (value) => typeof File !== "undefined" && value instanceof File;
+const isFile = (value) => (typeof File !== "undefined" && value instanceof File)
+  || Boolean(value && typeof value.name === 'string' && typeof value.arrayBuffer === 'function');
 
 const makeAdHocAssetId = (file) =>
   `adhoc-${file?.name ?? "asset"}-${file?.size ?? 0}-${file?.lastModified ?? Date.now()}-${Math.random()
@@ -937,12 +939,16 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       refreshSparkForCurrentView('asset activation');
     }
 
-    // Fire-and-forget neighbor preloading (don't block current asset)
-    const neighborIds = new Set(neighborAssets.map((neighbor) => neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id));
+    // Do not decode neighboring multi-hundred-megabyte splats alongside the active one.
+    const isNativeDesktopFile = typeof asset.file?.openStream === 'function';
+    const shouldPreloadNeighbors = !isNativeDesktopFile
+      || (asset.file?.size ?? asset.size ?? 0) <= LARGE_ASSET_PRELOAD_LIMIT_BYTES;
+    const retainedAssets = shouldPreloadNeighbors ? neighborAssets : [asset];
+    const neighborIds = new Set(retainedAssets.map((neighbor) => neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id));
     retainOnlySplats(neighborIds);
     
     // Preload neighbors in background without awaiting
-    neighborAssets
+    if (shouldPreloadNeighbors) neighborAssets
       .filter((neighbor) => (neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id) !== activeCacheKey)
       .forEach((neighbor) => {
         ensureSplatEntry(neighbor)

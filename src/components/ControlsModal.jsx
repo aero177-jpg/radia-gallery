@@ -123,9 +123,9 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Controls" isOpen={isControlsOpen}>
             <Section title="Desktop" isOpen={isSubsectionOpen('controls.desktop')}>
               <ul>
-                <li><strong>WASD QE:</strong> Navigate non ML-Sharp scenes. Hold <strong>Space</strong> to lock the camera: A/D orbit horizontally, Q/E orbit vertically, and W/S track forward/back parallel to the grid. + <strong>shift</strong> to move faster.</li>
+                <li><strong>WASD QE:</strong> Navigate non ML-Sharp scenes. W/S track forward/back parallel to the grid. Hold <strong>Space</strong> to lock the camera: A/D orbit horizontally, Q/E orbit vertically, and W/S move forward/back in the view direction. With Free look enabled, Space + A/D/Q/E rotates in place. + <strong>shift</strong> to move faster.</li>
                 <li><strong>Double click:</strong> Zoom/orbit around point (hit refresh to clear).</li>
-                <li><strong>Click-drag:</strong> Orbit.</li>
+                <li><strong>Click-drag:</strong> Orbit, or rotate in place with Free look enabled.</li>
                 <li><strong>Right click-drag:</strong> Pan.</li>
                 <li><strong>Scroll:</strong> Zoom.</li>
                 <li><strong>Click:</strong> Interact with controls and viewer.</li>

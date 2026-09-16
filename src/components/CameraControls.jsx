@@ -15,7 +15,7 @@ import { enableImmersiveMode, disableImmersiveMode, recenterInImmersiveMode, isI
 import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport.js';
 import { saveFocusDistance, clearFocusDistance, saveAutoOrbitSettings } from '../fileStorage';
 import { getSplatCache, updateFocusDistanceInCache, clearFocusDistanceInCache, updateAutoOrbitInCache } from '../splatManager';
-import { AUTO_ORBIT_MODE_OPTIONS, AUTO_ORBIT_PATH_OPTIONS, AUTO_ORBIT_SPEED_OPTIONS, getAutoOrbitParameters, normalizeAutoOrbitSettings } from '../autoOrbitConfig';
+import { AUTO_ORBIT_PATH_OPTIONS, AUTO_ORBIT_SPEED_OPTIONS, getAutoOrbitParameters, normalizeAutoOrbitSettings } from '../autoOrbitConfig';
 import { handleAutoOrbitInputStart, refreshAutoOrbit, scheduleAutoOrbit } from '../autoOrbit';
 import { stopSlideshow } from '../slideshowController';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -351,6 +351,11 @@ function CameraControls() {
       refreshAutoOrbit();
     }
   }, [currentAssetIndex, fileCustomAnimation?.autoOrbit, isCustomModel]);
+
+  useEffect(() => {
+    if (!controls) return;
+    controls.enableRotate = autoOrbitSettings.mode !== 'rotate';
+  }, [autoOrbitSettings.mode]);
 
   const handleBaseOrientationChange = useCallback((event) => {
     const baseOrientation = event.target.value;
@@ -1381,6 +1386,17 @@ function CameraControls() {
               </div>
             </div>
             <div class="control-row animate-toggle-row">
+              <span class="control-label">Free look</span>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  checked={autoOrbitSettings.mode === 'rotate'}
+                  onChange={(event) => handleAutoOrbitChange({ mode: event.target.checked ? 'rotate' : 'orbit' })}
+                />
+                <span class="switch-track" aria-hidden="true" />
+              </label>
+            </div>
+            <div class="control-row animate-toggle-row">
               <span class="control-label">Auto orbit</span>
               <label class="switch">
                 <input
@@ -1394,17 +1410,6 @@ function CameraControls() {
             {autoOrbitSettings.enabled && (
               <div class="control-row auto-orbit-options">
                 <div class="control-track">
-                  <select
-                    class="quality-select"
-                    value={autoOrbitSettings.mode}
-                    onChange={(event) => handleAutoOrbitChange({ mode: event.target.value })}
-                    aria-label="Auto orbit mode"
-                    title="Auto orbit mode"
-                  >
-                    {AUTO_ORBIT_MODE_OPTIONS.map(({ value, label }) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
                   <select
                     class="quality-select"
                     value={autoOrbitSettings.speed}
