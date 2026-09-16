@@ -11,6 +11,9 @@ const normalizeBasePath = (value) => {
 }
 
 const base = normalizeBasePath(process.env.BASE_PATH || '/');
+const desktopFileOpenModule = process.env.TAURI_ENV_PLATFORM
+  ? resolve(__dirname, 'src/desktopFileOpen.tauri.js')
+  : resolve(__dirname, 'src/desktopFileOpen.js');
 
 export default defineConfig({
   plugins: [
@@ -29,6 +32,15 @@ export default defineConfig({
         display_override: ['fullscreen', 'standalone'],
         background_color: '#0c0d10',
         theme_color: '#0c0d10',
+        file_handlers: [
+          {
+            action: './',
+            accept: {
+              'application/octet-stream': ['.ply', '.sog'],
+            },
+            launch_type: 'single-client',
+          },
+        ],
         icons: [
           {
             src: `${base}radiaIcon_192.png`,
@@ -55,6 +67,11 @@ export default defineConfig({
   ],
   // Use BASE_PATH environment variable, defaulting to '/'
   base,
+  resolve: {
+    alias: {
+      '@desktop-file-open': desktopFileOpenModule,
+    },
+  },
   build: {
     rollupOptions: {
       input: {

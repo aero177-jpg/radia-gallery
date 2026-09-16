@@ -1,84 +1,67 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
+let pendingLaunches = [];
+let launchPending = false;
+let processing = false;
+let fileConsumer = null;
+const pendingListeners = new Set();
 
-const DESKTOP_FILE_OPEN_EVENT = 'radia://open-files';
-
-const isTauriRuntime = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-
-const toFile = async (path) => {
-  const normalizedPath = String(path || '');
-  if (!normalizedPath) return null;
-
-  const info = await invoke('get_splat_file_info', { path: normalizedPath });
-  return {
-    name: info.name,
-    size: info.size,
-    lastModified: info.lastModified,
-    async openStream() {
-      const response = await fetch(convertFileSrc(normalizedPath));
-      if (!response.ok || !response.body) {
-        throw new Error(`Could not stream ${info.name}`);
-      }
-      return response.body;
-    },
-    async arrayBuffer() {
-      const response = await fetch(convertFileSrc(normalizedPath));
-      if (!response.ok) {
-        throw new Error(`Could not open ${info.name}`);
-      }
-      return response.arrayBuffer();
-    },
-  };
+const setLaunchPending = (pending) => {
+	launchPending = pending;
+	pendingListeners.forEach((listener) => listener(pending));
 };
 
-const openPaths = async (paths, onFiles, onOpening) => {
-  const files = (await Promise.all((paths || []).map(toFile))).filter(Boolean);
-  if (files.length > 0) {
-    onOpening();
-    await onFiles(files);
-  }
+const processPendingLaunches = async () => {
+	if (processing || !fileConsumer || pendingLaunches.length === 0) return;
+
+	processing = true;
+	fileConsumer.onOpening();
+
+	try {
+		while (pendingLaunches.length > 0 && fileConsumer) {
+			const handles = pendingLaunches.shift();
+			const files = await Promise.all(handles.map((handle) => handle.getFile()));
+			if (files.length > 0) {
+				await fileConsumer.onFiles(files);
+			}
+		}
+	} catch (error) {
+		console.error('[PWA] Failed to open launched file:', error);
+	} finally {
+		processing = false;
+		if (pendingLaunches.length === 0) {
+			setLaunchPending(false);
+		} else {
+			void processPendingLaunches();
+		}
+	}
 };
 
-/**
- * Connect native Windows file launches to the app's existing File loader.
- * Returns a cleanup function in Tauri and a no-op in regular web builds.
- */
+if (typeof window !== 'undefined' && 'launchQueue' in window) {
+	window.launchQueue.setConsumer((launchParams) => {
+		const handles = launchParams.files || [];
+		if (handles.length === 0) return;
+
+		pendingLaunches.push(handles);
+		setLaunchPending(true);
+		void processPendingLaunches();
+	});
+}
+
+export const hasPendingDesktopFileOpen = () => launchPending;
+
+export const subscribeDesktopFileOpenPending = (listener) => {
+	pendingListeners.add(listener);
+	listener(launchPending);
+	return () => pendingListeners.delete(listener);
+};
+
 export const initializeDesktopFileOpen = async (
-  onFiles,
-  onOpening = () => {},
-  onDraggingChange = () => {},
+	onFiles,
+	onOpening = () => {},
 ) => {
-  if (!isTauriRuntime()) return () => {};
+	fileConsumer = { onFiles, onOpening };
+	void processPendingLaunches();
 
-  const unlisten = await listen(DESKTOP_FILE_OPEN_EVENT, ({ payload }) => {
-    void openPaths(payload?.paths, onFiles, onOpening).catch((error) => {
-      console.error('[Desktop] Failed to open native file:', error);
-    });
-  });
-  const unlistenDrop = await getCurrentWebview().onDragDropEvent(({ payload }) => {
-    if (payload.type === 'drop') {
-      onDraggingChange(false);
-      void openPaths(payload.paths, onFiles, onOpening).catch((error) => {
-        console.error('[Desktop] Failed to open dropped file:', error);
-      });
-      return;
-    }
-
-    onDraggingChange(payload.type !== 'leave');
-  });
-
-  try {
-    const paths = await invoke('take_startup_file_paths');
-    await openPaths(paths, onFiles, onOpening);
-  } catch (error) {
-    unlisten();
-    unlistenDrop();
-    throw error;
-  }
-
-  return () => {
-    unlisten();
-    unlistenDrop();
-  };
+	return () => {
+		fileConsumer = null;
+	};
 };

@@ -37,7 +37,11 @@ import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMulti
 import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport';
 import { fadeInViewer, fadeOutViewer, restoreViewerVisibility } from '../utils/viewerFade';
 import useDemoCollections from './useDemoCollections';
-import { initializeDesktopFileOpen } from '../desktopFileOpen.js';
+import {
+  hasPendingDesktopFileOpen,
+  initializeDesktopFileOpen,
+  subscribeDesktopFileOpenPending,
+} from '@desktop-file-open';
 
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
@@ -75,6 +79,8 @@ const isForceTitleEnabled = () => {
 };
 
 function App() {
+  const fileOpenPendingAtMount = hasPendingDesktopFileOpen();
+
   // Store state
   const panelOpen = useStore((state) => state.panelOpen);
   const isMobile = useStore((state) => state.isMobile);
@@ -104,8 +110,8 @@ function App() {
     return !isHomePath(window.location.pathname);
   });
   // Landing screen visibility (controls TitleCard fade-in/out)
-  const [landingVisible, setLandingVisible] = useState(() => assets.length === 0 && !activeSourceId);
-  const [desktopFileOpening, setDesktopFileOpening] = useState(false);
+  const [landingVisible, setLandingVisible] = useState(() => !fileOpenPendingAtMount && assets.length === 0 && !activeSourceId);
+  const [desktopFileOpening, setDesktopFileOpening] = useState(fileOpenPendingAtMount);
   const [routingResolved, setRoutingResolved] = useState(() => {
     if (typeof window === 'undefined') return false;
     return isHomePath(window.location.pathname);
@@ -346,6 +352,11 @@ function App() {
     desktopDropRef,
   });
 
+  useEffect(() => subscribeDesktopFileOpenPending((pending) => {
+    setDesktopFileOpening(pending);
+    if (pending) setLandingVisible(false);
+  }), []);
+
   useEffect(() => {
     if (!viewerReady) return;
 
@@ -552,17 +563,19 @@ function App() {
         hidden 
         onChange={handleUploadChange}
       />
-      <TitleCard
-        show={showLandingOverlay || forceTitleEnabled}
-        forceFrostedTitleOnly={forceTitleEnabled}
-        onPickFile={handlePickFile}
-        onOpenStorage={handleOpenStorage}
-        onLoadDemo={handleLoadDemo}
-        onSelectSource={handleSelectSource}
-        onOpenCloudGpu={handleOpenCloudGpu}
-        onInstallDemoCollections={handleInstallDemoCollections}
-        demoCollectionOptions={demoCollectionOptions}
-      />
+      {!desktopFileOpening && (
+        <TitleCard
+          show={showLandingOverlay || forceTitleEnabled}
+          forceFrostedTitleOnly={forceTitleEnabled}
+          onPickFile={handlePickFile}
+          onOpenStorage={handleOpenStorage}
+          onLoadDemo={handleLoadDemo}
+          onSelectSource={handleSelectSource}
+          onOpenCloudGpu={handleOpenCloudGpu}
+          onInstallDemoCollections={handleInstallDemoCollections}
+          demoCollectionOptions={demoCollectionOptions}
+        />
+      )}
         <Viewer
           viewerReady={viewerReady}
           dropOverlay={dropOverlay}
