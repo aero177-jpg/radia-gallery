@@ -130,6 +130,23 @@ export const recordRenderedFrame = (now = performance.now()) => {
   }
   fpsContainer.textContent = lines.join('\n');
 };
+
+const recordIdleFrame = (now) => {
+  if (now - debugLastUpdate < 250) return;
+
+  debugFrameCount = 0;
+  debugAppFps = 0;
+  debugLastUpdate = now;
+  if (!fpsContainer || !currentMesh || (!showAppFps && !showRenderStats)) return;
+
+  const lines = [];
+  if (showAppFps) lines.push('0 FPS');
+  if (showRenderStats) {
+    lines.push(`${spark?.activeSplats?.toLocaleString?.() ?? 0} active splats`);
+    lines.push(`SH${currentMesh?.maxSh ?? 0} | ${renderer?.xr?.isPresenting ? 'XR' : 'desktop'}`);
+  }
+  fpsContainer.textContent = lines.join('\n');
+};
 export const getProvokingVertexSupport = () => {
   const gl = renderer?.getContext?.();
   if (!gl) return null;
@@ -630,6 +647,8 @@ export const startRenderLoop = () => {
       checkForGlErrors(now);
       needsRender = false;
       recordRenderedFrame(now);
+    } else {
+      recordIdleFrame(now);
     }
   };
   animate();

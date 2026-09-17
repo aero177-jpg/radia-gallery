@@ -71,7 +71,7 @@ const ensureAssetFile = async (asset) => {
 };
 
 const createEntry = async (asset, { onProgress } = {}) => {
-  onProgress?.({ stage: 'file', message: 'Opening splat file...' });
+  onProgress?.({ stage: 'file', message: 'Opening file...' });
 
   // Get file - may need to load from storage source
   const file = await ensureAssetFile(asset);
@@ -133,6 +133,9 @@ const createEntry = async (asset, { onProgress } = {}) => {
 
   const store = useStore.getState();
   const isMlSharpSplat = Boolean(cameraMetadata?.intrinsics);
+  if (isMlSharpSplat && store.mobileJoystickEnabled) {
+    store.setMobileJoystickEnabled(false);
+  }
   if (isMlSharpSplat && store.debugRuntimeLodEnabled) {
     store.setDebugRuntimeLodEnabled(false);
     store.addLog('Runtime LoD disabled for ML-Sharp splat');

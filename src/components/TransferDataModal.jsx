@@ -26,6 +26,7 @@ import { getSource } from '../storage/index.js';
 import { buildTransferBundle, buildTransferJson, getLocalDataAvailability } from '../utils/debugTransfer.js';
 import { loadR2Settings } from '../storage/r2Settings.js';
 import { loadCloudGpuSettings } from '../storage/cloudGpuSettings.js';
+import { downloadBlobToDevice } from '../utils/downloadToDevice.js';
 import Modal from './Modal';
 import SelectableOptionItem from './SelectableOptionItem';
 import ImportZipForm from './ImportZipForm.jsx';
@@ -243,17 +244,6 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
     }));
   }, []);
 
-  const downloadBlob = useCallback((blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, []);
-
   const options = isCurrentCollectionMode
     ? [
         {
@@ -381,13 +371,13 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
         const { json } = await buildTransferJson(payload);
         const blob = new Blob([json], { type: 'application/json' });
         const filename = buildExportFileName().replace(/\.zip$/, '.json');
-        downloadBlob(blob, filename);
+        await downloadBlobToDevice(blob, filename);
         const exportLabel = isCurrentCollectionMode ? 'current collection' : 'all data';
         addLog?.(`[Debug] Transfer JSON exported (${exportLabel})`);
       } else {
         const { blob, manifest } = await buildTransferBundle(payload);
         const filename = buildExportFileName();
-        downloadBlob(blob, filename);
+        await downloadBlobToDevice(blob, filename);
         const previewCount = manifest?.data?.previews?.length ?? 0;
         const exportLabel = isCurrentCollectionMode ? 'current collection' : 'all data';
         addLog?.(`[Debug] Transfer bundle exported (${exportLabel}, ${previewCount} previews)`);
@@ -404,7 +394,6 @@ function ExportPage({ onBack, onClose, addLog, exportMode = 'all-data', scopeCon
     addLog,
     buildExportFileName,
     buildExportPayload,
-    downloadBlob,
     hasTransferSelection,
     isCurrentCollectionMode,
     isJsonExport,

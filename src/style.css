@@ -257,14 +257,25 @@ input[type="checkbox"]:disabled:checked {
 
 .mobile-elevation-controls {
   position: absolute;
-  right: 142px;
+  right: 134px;
   bottom: max(92px, 18dvh);
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 10px;
+  gap: 4px;
   height: 112px;
+  margin-right: -12px;
   pointer-events: auto;
+}
+
+.mobile-elevation-hit-zone {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 54px;
+  /* background: rgba(255, 80, 80, 0.18); */
+  /* outline: 1px solid rgba(255, 120, 120, 0.7); */
+  touch-action: none;
 }
 
 .mobile-elevation-button {
@@ -1258,6 +1269,18 @@ input[type="checkbox"]:disabled:checked {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.panel-toggle::before {
+  content: "";
+  position: absolute;
+  inset: -20px;
+  /* background: rgba(255, 80, 80, 0.18); */
+  /* outline: 1px solid rgba(255, 120, 120, 0.7); */
+}
+
+.panel-toggle.open::before {
+  inset: -10px;
 }
 
 .panel-toggle.slideshow-hide,

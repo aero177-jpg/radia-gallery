@@ -1143,7 +1143,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
                 <span
                   className={`loading-progress-track${loadingPercent == null ? ' is-indeterminate' : ''}`}
                   role="progressbar"
-                  aria-label={loadingProgress?.message || 'Loading splat'}
+                  aria-label={loadingProgress?.message || 'Loading'}
                   aria-valuemin="0"
                   aria-valuemax="100"
                   aria-valuenow={loadingPercent ?? undefined}

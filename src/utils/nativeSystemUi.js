@@ -1,7 +1,9 @@
 import { Capacitor } from '@capacitor/core';
+import { registerPlugin } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
 
 let lastHiddenState = null;
+const FastSystemUi = registerPlugin('FastSystemUi');
 
 const isNative = () => Capacitor.isNativePlatform();
 
@@ -25,9 +27,9 @@ export const setNativeSystemUiHidden = async (hidden) => {
 
   try {
     if (nextHidden) {
-      await StatusBar.hide();
+      await FastSystemUi.setStatusBarHidden({ hidden: true });
     } else {
-      await StatusBar.show();
+      await FastSystemUi.setStatusBarHidden({ hidden: false });
       await configureNativeStatusBarOverlay();
     }
 

@@ -5,6 +5,7 @@ import { useStore } from '../store.js';
 import { getSource } from '../storage/index.js';
 import { buildEmbedLink, validateImportUrl } from '../utils/importFromUrl.js';
 import { buildEmbedBundle, buildEmbedManifestJson } from '../utils/debugTransfer.js';
+import { downloadBlobToDevice } from '../utils/downloadToDevice.js';
 import Modal from './Modal.jsx';
 
 function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
@@ -115,17 +116,6 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
     return `radia-embed-${collectionSlug}-${shortDate}.${extension}`;
   }, [activeSource?.name]);
 
-  const downloadBlob = useCallback((blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, []);
-
   const buildExportOptions = useCallback(() => {
     if (!exportScope) {
       throw new Error('Current collection is unavailable.');
@@ -197,13 +187,13 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
       const options = buildExportOptions();
       if (includePreviews) {
         const { blob } = await buildEmbedBundle(options);
-        downloadBlob(blob, buildExportFileName('zip'));
+        await downloadBlobToDevice(blob, buildExportFileName('zip'));
         setExportSuccess('Embed ZIP exported. Host the ZIP, then paste its public URL below.');
         addLog?.('[Sharing] Exported embed ZIP with previews');
       } else {
         const { json } = await buildEmbedManifestJson(options);
         const blob = new Blob([json], { type: 'application/json' });
-        downloadBlob(blob, buildExportFileName('json'));
+        await downloadBlobToDevice(blob, buildExportFileName('json'));
         setExportSuccess('Embed JSON exported. Host the JSON, then paste its public URL below.');
         addLog?.('[Sharing] Exported embed JSON');
       }
@@ -214,7 +204,7 @@ function CreateEmbedUrlModal({ isOpen, onClose, addLog }) {
     } finally {
       setExportBusy(false);
     }
-  }, [addLog, buildExportFileName, buildExportOptions, downloadBlob, embedGenerationUnavailable, exportBusy, includePreviews]);
+  }, [addLog, buildExportFileName, buildExportOptions, embedGenerationUnavailable, exportBusy, includePreviews]);
 
   const handleCopyJson = useCallback(async () => {
     if (embedGenerationUnavailable || exportBusy || includePreviews) return;

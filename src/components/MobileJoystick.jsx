@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { camera, controls, requestRender, THREE, updateDollyZoomBaselineFromCamera } from '../viewer';
 import { handleAutoOrbitInputEnd, handleAutoOrbitInputStart } from '../autoOrbit';
+import { isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode } from '../immersiveMode';
 
 const DEAD_ZONE = 0.08;
 const MAX_TRAVEL_RATIO = 0.36;
@@ -39,6 +40,7 @@ function MobileJoystick() {
       frameRef.current = null;
     }
     handleAutoOrbitInputEnd();
+    resumeImmersiveMode();
   }, [hasActiveInput]);
 
   const stepMovement = useCallback((timestamp) => {
@@ -114,6 +116,7 @@ function MobileJoystick() {
     pointerIdRef.current = event.pointerId;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     handleAutoOrbitInputStart();
+    if (isImmersiveModeActive()) pauseImmersiveMode();
     updateInput(padRef.current, event, inputRef, setKnobOffset);
     lastTimeRef.current = 0;
     if (!frameRef.current) frameRef.current = requestAnimationFrame(stepMovement);
@@ -141,6 +144,7 @@ function MobileJoystick() {
     elevationDirectionRef.current = direction;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     handleAutoOrbitInputStart();
+    if (isImmersiveModeActive()) pauseImmersiveMode();
     lastTimeRef.current = 0;
     if (!frameRef.current) frameRef.current = requestAnimationFrame(stepMovement);
   }, [stepMovement]);
@@ -159,31 +163,40 @@ function MobileJoystick() {
     elevationPointerIdRef.current = null;
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
     handleAutoOrbitInputEnd();
+    resumeImmersiveMode();
   }, []);
 
   return (
     <>
       <div class="mobile-elevation-controls" aria-label="Camera elevation controls">
-        <button
-          type="button"
-          class="mobile-elevation-button is-up"
-          aria-label="Move camera up"
+        <div
+          class="mobile-elevation-hit-zone"
           onPointerDown={(event) => startElevationInput(1, event)}
           onPointerUp={endElevationInput}
           onPointerCancel={endElevationInput}
         >
-          <span aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          class="mobile-elevation-button is-down"
-          aria-label="Move camera down"
+          <button
+            type="button"
+            class="mobile-elevation-button is-up"
+            aria-label="Move camera up"
+          >
+            <span aria-hidden="true" />
+          </button>
+        </div>
+        <div
+          class="mobile-elevation-hit-zone"
           onPointerDown={(event) => startElevationInput(-1, event)}
           onPointerUp={endElevationInput}
           onPointerCancel={endElevationInput}
         >
-          <span aria-hidden="true" />
-        </button>
+          <button
+            type="button"
+            class="mobile-elevation-button is-down"
+            aria-label="Move camera down"
+          >
+            <span aria-hidden="true" />
+          </button>
+        </div>
       </div>
       <div
         ref={movePadRef}

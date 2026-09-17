@@ -165,6 +165,10 @@ function BottomControls({ onOpenSlideshowOptions }) {
     });
   }, [toggleExpandedViewer]);
 
+  const handleToggleMobileFullscreen = useCallback(() => {
+    return handleToggleExpandedViewer();
+  }, [handleToggleExpandedViewer]);
+
   const currentAsset = currentAssetIndex >= 0 && currentAssetIndex < assets.length
     ? assets[currentAssetIndex]
     : null;
@@ -218,11 +222,11 @@ function BottomControls({ onOpenSlideshowOptions }) {
             {hasMesh && assetsLength > 0 && isMobile && (
               <button
                 class="bottom-page-btn"
-                onClick={handleToggleRegularFullscreen}
-                aria-label={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                title={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                onClick={handleToggleMobileFullscreen}
+                aria-label={expandedViewer ? 'Collapse viewer' : 'Expand viewer'}
+                title={expandedViewer ? 'Collapse viewer' : 'Expand viewer'}
               >
-                {isRegularFullscreen ? <MinimizeIcon size={18} /> : <MaximizeIcon size={18} />}
+                <FontAwesomeIcon icon={expandedViewer ? faCompressAlt : faExpandAlt} />
               </button>
             )}
             {assetsLength > 0 && (
@@ -270,17 +274,6 @@ function BottomControls({ onOpenSlideshowOptions }) {
             >
               <FocusIcon size={18} />
             </button>
-
-            {isRegularFullscreen && (
-              <button
-                class="bottom-page-btn"
-                onClick={handleToggleExpandedViewer}
-                aria-label={expandedViewer ? 'Collapse viewer' : 'Expand viewer'}
-                title={expandedViewer ? 'Collapse viewer' : 'Expand viewer'}
-              >
-                <FontAwesomeIcon icon={expandedViewer ? faCompressAlt : faExpandAlt} />
-              </button>
-            )}
 
             {!isMobile && (
               <button

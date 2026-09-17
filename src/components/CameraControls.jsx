@@ -1440,17 +1440,19 @@ function CameraControls() {
           </>
         )}
 
-        <div class="control-row animate-toggle-row">
-          <span class="control-label">Movement joystick</span>
-          <label class="switch">
-            <input
-              type="checkbox"
-              checked={mobileJoystickEnabled}
-              onChange={(event) => setMobileJoystickEnabled(event.target.checked)}
-            />
-            <span class="switch-track" aria-hidden="true" />
-          </label>
-        </div>
+        {isCustomModel && (
+          <div class="control-row animate-toggle-row">
+            <span class="control-label">Movement joystick</span>
+            <label class="switch">
+              <input
+                type="checkbox"
+                checked={mobileJoystickEnabled}
+                onChange={(event) => setMobileJoystickEnabled(event.target.checked)}
+              />
+              <span class="switch-track" aria-hidden="true" />
+            </label>
+          </div>
+        )}
 
         {/* Eye separation slider - shown when stereo is enabled */}
         {stereoEnabled && (
