@@ -11,9 +11,7 @@ const normalizeBasePath = (value) => {
 }
 
 const base = normalizeBasePath(process.env.BASE_PATH || '/');
-const desktopFileOpenModule = process.env.TAURI_ENV_PLATFORM
-  ? resolve(__dirname, 'src/desktopFileOpen.tauri.js')
-  : resolve(__dirname, 'src/desktopFileOpen.js');
+const desktopFileOpenModule = resolve(__dirname, 'src/desktopFileOpen.js');
 
 export default defineConfig({
   plugins: [
