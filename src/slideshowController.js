@@ -41,6 +41,7 @@ import {
   getSlideshowTransitionInfo,
 } from "./slideshowTransitionState.js";
 import { camera, controls, requestRender, THREE } from "./viewer.js";
+import { cancelAutoOrbit } from "./autoOrbit.js";
 import gsap from "gsap";
 
 const getStoreState = () => useStore.getState();
@@ -146,6 +147,7 @@ const GLIDE_DURATION = 0.5; // seconds for camera glide on resume
  * - Resume (has pauseSnapshot): glide back to saved camera, resume tween + timer.
  */
 export const startSlideshow = () => {
+  cancelAutoOrbit();
   if (isPlaying) return;
   if (!hasMultipleAssets()) return;
 
@@ -518,6 +520,8 @@ const scheduleNextAdvanceMs = (ms) => {
  */
 const advanceAndSchedule = async () => {
   if (!isPlaying) return;
+
+  cancelAutoOrbit();
 
   // Clear snapshot — we're moving to a new asset
   pauseSnapshot = null;

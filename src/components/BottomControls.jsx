@@ -5,7 +5,7 @@
 import { useCallback, useRef } from 'preact/hooks';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExpandAlt, faCompressAlt } from '@fortawesome/free-solid-svg-icons';
-import { FocusIcon, Rotate3DIcon } from '../icons/customIcons';
+import { FocusIcon, Rotate3DIcon, MaximizeIcon, MinimizeIcon } from '../icons/customIcons';
 import { useStore } from '../store';
 import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, resetViewer } from '../viewer';
 import { resize, reloadCurrentAsset } from '../fileLoader';
@@ -13,7 +13,9 @@ import { resetViewWithImmersive } from '../cameraUtils';
 import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
 import { resetSplatManager, updateAnnotationInCache } from '../splatManager';
 import { saveAnnotation } from '../fileStorage';
+import { initVrSupport, disposeVrSupport } from '../vrMode';
 import useHasMesh from '../utils/useHasMesh';
+import useFullscreenControls from '../utils/useFullscreenControls';
 import useControlsReveal from '../utils/useControlsReveal';
 import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport';
 import AssetNavigation from './AssetNavigation';
@@ -51,6 +53,15 @@ function BottomControls({ onOpenSlideshowOptions }) {
   const resetHoldTimeout = useRef(null);
   const resetHoldTriggered = useRef(false);
 
+  const {
+    isRegularFullscreen,
+    handleToggleRegularFullscreen,
+  } = useFullscreenControls({
+    hasMesh,
+    resize,
+    requestRender,
+  });
+
   const { controlsRevealed, revealBottomControls } = useControlsReveal({ slideshowPlaying });
 
   const handleResetView = useCallback(() => {
@@ -61,8 +72,10 @@ function BottomControls({ onOpenSlideshowOptions }) {
     const viewerEl = document.getElementById('viewer');
     if (!viewerEl) return;
 
+    if (!await disposeVrSupport()) return;
     resetViewer(viewerEl, { preserveBackground: true });
     resetSplatManager();
+    void initVrSupport(viewerEl);
 
     await reloadCurrentAsset();
     resize();
@@ -202,15 +215,15 @@ function BottomControls({ onOpenSlideshowOptions }) {
         onPointerDown={() => slideshowPlaying && revealBottomControls(true, 1000)}
       >
         <div class="bottom-controls-left">
-            {assetsLength > 0 && (
-            <button
-              class="bottom-page-btn"
-              onClick={handleToggleExpandedViewer}
-              aria-label={expandedViewer ? 'Collapse viewer' : 'Expand viewer'}
-              title={expandedViewer ? 'Collapse viewer' : 'Expand viewer'}
-            >
-              <FontAwesomeIcon icon={expandedViewer ? faCompressAlt : faExpandAlt} />
-            </button>
+            {hasMesh && assetsLength > 0 && isMobile && (
+              <button
+                class="bottom-page-btn"
+                onClick={handleToggleRegularFullscreen}
+                aria-label={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                title={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              >
+                {isRegularFullscreen ? <MinimizeIcon size={18} /> : <MaximizeIcon size={18} />}
+              </button>
             )}
             {assetsLength > 0 && (
               <button
@@ -258,7 +271,7 @@ function BottomControls({ onOpenSlideshowOptions }) {
               <FocusIcon size={18} />
             </button>
 
-            {/* {isRegularFullscreen && (
+            {isRegularFullscreen && (
               <button
                 class="bottom-page-btn"
                 onClick={handleToggleExpandedViewer}
@@ -267,7 +280,18 @@ function BottomControls({ onOpenSlideshowOptions }) {
               >
                 <FontAwesomeIcon icon={expandedViewer ? faCompressAlt : faExpandAlt} />
               </button>
-            )} */}
+            )}
+
+            {!isMobile && (
+              <button
+                class="bottom-page-btn"
+                onClick={handleToggleRegularFullscreen}
+                aria-label={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                title={isRegularFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              >
+                {isRegularFullscreen ? <MinimizeIcon size={18} /> : <MaximizeIcon size={18} />}
+              </button>
+            )}
 
             {canUseImmersiveControls && (
               <button

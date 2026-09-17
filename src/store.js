@@ -74,6 +74,13 @@ const getPersistedJson = (key, fallback = null) => {
 const QUALITY_PRESET_KEY = 'qualityPreset';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
+const DEBUG_RUNTIME_LOD_KEY = 'debugRuntimeLodEnabled';
+const DEBUG_SPLAT_SH_LEVEL_KEY = 'debugSplatShLevel';
+const DEBUG_LOD_SPLAT_COUNT_KEY = 'debugLodSplatCount';
+const DEBUG_LOD_RENDER_SCALE_KEY = 'debugLodRenderScale';
+const DEBUG_MIN_SORT_INTERVAL_KEY = 'debugMinSortIntervalMs';
+const DEBUG_RENDER_STATS_KEY = 'debugShowRenderStats';
+const LOADING_INFO_KEY = 'loadingInfoEnabled';
 
 const UI_PREFERENCES_KEY = 'ui-preferences';
 
@@ -81,6 +88,12 @@ const DEFAULT_UI_PREFS = {
   appBgColor: '#0c0d10',
   bgBlur: 40,
   disableTransparentUi: false,
+  vrBaseHeight: 0,
+  vrHorizontalOffset: 0,
+  vrBaseZoom: 0,
+  vrBaseScale: 0,
+  vrResolutionScale: 0.5,
+  vrPassthroughEnabled: false,
   animation: {
     intensity: 'medium',
     direction: 'left',
@@ -116,6 +129,15 @@ const normalizeUiPrefs = (raw) => {
 
   if (typeof raw.disableTransparentUi === 'boolean') {
     prefs.disableTransparentUi = raw.disableTransparentUi;
+  }
+
+  if (Number.isFinite(raw.vrBaseHeight)) prefs.vrBaseHeight = raw.vrBaseHeight;
+  if (Number.isFinite(raw.vrHorizontalOffset)) prefs.vrHorizontalOffset = raw.vrHorizontalOffset;
+  if (Number.isFinite(raw.vrBaseZoom)) prefs.vrBaseZoom = raw.vrBaseZoom;
+  if (Number.isFinite(raw.vrBaseScale)) prefs.vrBaseScale = raw.vrBaseScale;
+  if (Number.isFinite(raw.vrResolutionScale)) prefs.vrResolutionScale = raw.vrResolutionScale;
+  if (typeof raw.vrPassthroughEnabled === 'boolean') {
+    prefs.vrPassthroughEnabled = raw.vrPassthroughEnabled;
   }
 
   if (raw.animation && typeof raw.animation === 'object') {
@@ -175,6 +197,28 @@ const persistUiPrefs = (state) => {
   if (typeof state.disableTransparentUi === 'boolean'
     && state.disableTransparentUi !== DEFAULT_UI_PREFS.disableTransparentUi) {
     prefs.disableTransparentUi = state.disableTransparentUi;
+  }
+
+  if (Number.isFinite(state.vrBaseHeight) && state.vrBaseHeight !== DEFAULT_UI_PREFS.vrBaseHeight) {
+    prefs.vrBaseHeight = state.vrBaseHeight;
+  }
+  if (Number.isFinite(state.vrHorizontalOffset)
+    && state.vrHorizontalOffset !== DEFAULT_UI_PREFS.vrHorizontalOffset) {
+    prefs.vrHorizontalOffset = state.vrHorizontalOffset;
+  }
+  if (Number.isFinite(state.vrBaseZoom) && state.vrBaseZoom !== DEFAULT_UI_PREFS.vrBaseZoom) {
+    prefs.vrBaseZoom = state.vrBaseZoom;
+  }
+  if (Number.isFinite(state.vrBaseScale) && state.vrBaseScale !== DEFAULT_UI_PREFS.vrBaseScale) {
+    prefs.vrBaseScale = state.vrBaseScale;
+  }
+  if (Number.isFinite(state.vrResolutionScale)
+    && state.vrResolutionScale !== DEFAULT_UI_PREFS.vrResolutionScale) {
+    prefs.vrResolutionScale = state.vrResolutionScale;
+  }
+  if (typeof state.vrPassthroughEnabled === 'boolean'
+    && state.vrPassthroughEnabled !== DEFAULT_UI_PREFS.vrPassthroughEnabled) {
+    prefs.vrPassthroughEnabled = state.vrPassthroughEnabled;
   }
 
   if (state.animationIntensity && state.animationIntensity !== DEFAULT_UI_PREFS.animation.intensity) {
@@ -258,6 +302,13 @@ const persistedQualityPreset = getPersistedString(
 );
 const persistedCustomStdDev = getPersistedNumber(DEBUG_SPARK_STDDEV_KEY, Math.sqrt(5));
 const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
+const persistedRuntimeLod = getPersistedBoolean(DEBUG_RUNTIME_LOD_KEY, false);
+const persistedSplatShLevel = getPersistedNumber(DEBUG_SPLAT_SH_LEVEL_KEY, 3);
+const persistedLodSplatCount = getPersistedNumber(DEBUG_LOD_SPLAT_COUNT_KEY, 500000);
+const persistedLodRenderScale = getPersistedNumber(DEBUG_LOD_RENDER_SCALE_KEY, 1);
+const persistedMinSortIntervalMs = getPersistedNumber(DEBUG_MIN_SORT_INTERVAL_KEY, 0);
+const persistedShowRenderStats = getPersistedBoolean(DEBUG_RENDER_STATS_KEY, false);
+const persistedLoadingInfo = getPersistedBoolean(LOADING_INFO_KEY, false);
 
 const persistedUiPrefs = normalizeUiPrefs(getPersistedJson(UI_PREFERENCES_KEY, null));
 
@@ -292,6 +343,7 @@ export const useStore = create(
   // Camera settings
   fov: 60,
   cameraRange: 8,
+  cameraMovementSpeed: 'default',
   dollyZoomEnabled: true,
   viewerFovSlider: false,
   stereoEnabled: false,
@@ -299,6 +351,10 @@ export const useStore = create(
   stereoAspect: 1.0,
   stereoScale: 1.0,
   stereoOverlap: 1.0,
+  vrSupported: false,
+  vrSessionActive: false,
+  vrModelScale: 1,
+  vrPivotStatusMessage: '',
 
   // Animation settings
   animationEnabled: true,
@@ -314,6 +370,7 @@ export const useStore = create(
   slideshowHold: false,
   slideshowHoldWasPlaying: false,
   slideshowPlaying: false,
+  autoOrbitPlaying: false,
   viewerControlsDimmed: false,
   
   // Custom animation settings (used when intensity is 'custom')
@@ -332,6 +389,12 @@ export const useStore = create(
     transitionRange: 'default',
     zoomProfile: 'default',
     dollyZoom: false,
+    autoOrbit: {
+      enabled: false,
+      mode: 'orbit',
+      speed: 'medium',
+      path: '360-clockwise',
+    },
   },
   // Per-file annotation text (stored in IndexedDB file-settings)
   annotation: '',
@@ -347,7 +410,10 @@ export const useStore = create(
   metadataMissing: false,
   customMetadataAvailable: false,
   customMetadataControlsVisible: false,
+  isCustomModel: false,
   customModelScale: 1,
+  customBaseOrientation: 'y-down',
+  customModelRotation: { x: 0, y: 0, z: 0 },
   customAspectRatio: 'full',
   // Show FPS counter overlay
   showFps: false,
@@ -358,6 +424,7 @@ export const useStore = create(
   // Status
   status: 'Waiting for file...',
   isLoading: false,
+  loadingProgress: null,
 
   // Upload progress (global overlay)
   isUploading: false,
@@ -393,6 +460,12 @@ export const useStore = create(
   appBgColor: persistedUiPrefs.appBgColor ?? '#0c0d10',
   bgBlur: persistedUiPrefs.bgBlur ?? 40,
   disableTransparentUi: persistedUiPrefs.disableTransparentUi ?? false,
+  vrBaseHeight: persistedUiPrefs.vrBaseHeight ?? 0,
+  vrHorizontalOffset: persistedUiPrefs.vrHorizontalOffset ?? 0,
+  vrBaseZoom: persistedUiPrefs.vrBaseZoom ?? 0,
+  vrBaseScale: persistedUiPrefs.vrBaseScale ?? 0,
+  vrResolutionScale: persistedUiPrefs.vrResolutionScale ?? 0.5,
+  vrPassthroughEnabled: persistedUiPrefs.vrPassthroughEnabled ?? false,
   fillMode: false,
   
   // Debug
@@ -400,6 +473,13 @@ export const useStore = create(
   debugSettingsExpanded: false,
   debugFpsLimitEnabled: initialQuality.fpsLimit,
   debugSparkMaxStdDev: initialQuality.stdDev,
+  debugRuntimeLodEnabled: persistedRuntimeLod,
+  debugSplatShLevel: Math.max(0, Math.min(3, Math.round(persistedSplatShLevel))),
+  debugLodSplatCount: persistedLodSplatCount === 0 ? 0 : Math.max(750000, Math.round(persistedLodSplatCount)),
+  debugLodRenderScale: Math.max(0.5, persistedLodRenderScale),
+  debugMinSortIntervalMs: Math.max(0, persistedMinSortIntervalMs),
+  debugShowRenderStats: persistedShowRenderStats,
+  loadingInfoEnabled: persistedLoadingInfo,
   qualityPreset: (QUALITY_PRESETS[persistedQualityPreset] || persistedQualityPreset === 'debug-custom')
     ? persistedQualityPreset
     : 'default',
@@ -417,6 +497,9 @@ export const useStore = create(
   
   /** Sets camera orbit range in degrees */
   setCameraRange: (range) => set({ cameraRange: range }),
+
+  /** Sets the base keyboard camera movement speed */
+  setCameraMovementSpeed: (speed) => set({ cameraMovementSpeed: speed }),
 
   /** Opens/closes the controls modal */
   setControlsModalOpen: (controlsModalOpen) => set({ controlsModalOpen }),
@@ -450,6 +533,62 @@ export const useStore = create(
 
   /** Sets stereo overlap width fraction (1.0 = full width, lower = narrower) */
   setStereoOverlap: (overlap) => set({ stereoOverlap: overlap }),
+
+  /** Marks whether WebXR/VR is available */
+  setVrSupported: (vrSupported) => set({ vrSupported }),
+
+  /** Tracks if a VR session is active */
+  setVrSessionActive: (vrSessionActive) => set({ vrSessionActive }),
+
+  /** Tracks model scale while in VR */
+  setVrModelScale: (vrModelScale) => set({ vrModelScale }),
+
+  /** Updates VR pivot status text shown in the desktop overlay */
+  setVrPivotStatusMessage: (vrPivotStatusMessage) => set({
+    vrPivotStatusMessage: typeof vrPivotStatusMessage === 'string' ? vrPivotStatusMessage : '',
+  }),
+
+  setVrBaseHeight: (vrBaseHeight) => {
+    const value = Number(vrBaseHeight);
+    if (!Number.isFinite(value)) return;
+    set({ vrBaseHeight: value });
+    persistUiPrefs({ ...get(), vrBaseHeight: value });
+  },
+
+  setVrHorizontalOffset: (vrHorizontalOffset) => {
+    const value = Number(vrHorizontalOffset);
+    if (!Number.isFinite(value)) return;
+    set({ vrHorizontalOffset: value });
+    persistUiPrefs({ ...get(), vrHorizontalOffset: value });
+  },
+
+  setVrBaseZoom: (vrBaseZoom) => {
+    const value = Number(vrBaseZoom);
+    if (!Number.isFinite(value)) return;
+    set({ vrBaseZoom: value });
+    persistUiPrefs({ ...get(), vrBaseZoom: value });
+  },
+
+  setVrBaseScale: (vrBaseScale) => {
+    const value = Number(vrBaseScale);
+    if (!Number.isFinite(value)) return;
+    set({ vrBaseScale: value });
+    persistUiPrefs({ ...get(), vrBaseScale: value });
+  },
+
+  setVrResolutionScale: (vrResolutionScale) => {
+    const value = Number(vrResolutionScale);
+    if (!Number.isFinite(value)) return;
+    const clamped = Math.min(Math.max(value, 0.3), 1);
+    set({ vrResolutionScale: clamped });
+    persistUiPrefs({ ...get(), vrResolutionScale: clamped });
+  },
+
+  setVrPassthroughEnabled: (vrPassthroughEnabled) => {
+    const enabled = Boolean(vrPassthroughEnabled);
+    set({ vrPassthroughEnabled: enabled });
+    persistUiPrefs({ ...get(), vrPassthroughEnabled: enabled });
+  },
 
   /** Deprecated: toggles legacy fill-to-screen projection vs fit-to-bounds */
   toggleFillMode: () => set((state) => ({ fillMode: !state.fillMode })),
@@ -531,6 +670,9 @@ export const useStore = create(
   /** Sets slideshow playing state */
   setSlideshowPlaying: (playing) => set({ slideshowPlaying: playing }),
 
+  /** Tracks active custom-model auto orbit separately from slideshow playback */
+  setAutoOrbitPlaying: (playing) => set({ autoOrbitPlaying: Boolean(playing) }),
+
   /** Sets whether viewer-adjacent controls are dimmed */
   setViewerControlsDimmed: (dimmed) => set({ viewerControlsDimmed: Boolean(dimmed) }),
 
@@ -568,7 +710,22 @@ export const useStore = create(
   setMetadataMissing: (metadataMissing) => set({ metadataMissing }),
   setCustomMetadataAvailable: (customMetadataAvailable) => set({ customMetadataAvailable }),
   setCustomMetadataControlsVisible: (customMetadataControlsVisible) => set({ customMetadataControlsVisible }),
+  setIsCustomModel: (isCustomModel) => set({ isCustomModel }),
   setCustomModelScale: (customModelScale) => set({ customModelScale }),
+  setCustomBaseOrientation: (customBaseOrientation) => set({ customBaseOrientation }),
+  setCustomModelRotation: (customModelRotation) => set((state) => ({
+    customModelRotation: {
+      ...state.customModelRotation,
+      ...Object.fromEntries(
+        Object.entries(customModelRotation || {}).map(([axis, value]) => [
+          axis,
+          Number.isFinite(Number(value))
+            ? Math.max(-100, Math.min(100, Number(value)))
+            : state.customModelRotation[axis],
+        ]),
+      ),
+    },
+  })),
   setCustomAspectRatio: (customAspectRatio) => set({ customAspectRatio }),
   
   /** Updates file info (merges with existing) */
@@ -586,7 +743,13 @@ export const useStore = create(
   },
   
   /** Sets loading state */
-  setIsLoading: (isLoading) => set({ isLoading }),
+  setIsLoading: (isLoading) => set({
+    isLoading,
+    ...(!isLoading ? { loadingProgress: null } : {}),
+  }),
+
+  /** Updates transient loading detail without adding noisy log entries */
+  setLoadingProgress: (loadingProgress) => set({ loadingProgress }),
   
   /** Adds a timestamped log entry */
   addLog: (message) => {
@@ -734,6 +897,77 @@ export const useStore = create(
       }
     }
     set({ debugSparkMaxStdDev: value });
+  },
+
+  setDebugRuntimeLodEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(DEBUG_RUNTIME_LOD_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugRuntimeLodEnabled', err);
+    }
+    set({ debugRuntimeLodEnabled: value });
+  },
+
+  setLoadingInfoEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(LOADING_INFO_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist loadingInfoEnabled', err);
+    }
+    set({ loadingInfoEnabled: value });
+  },
+
+  setDebugSplatShLevel: (level) => {
+    const value = Math.max(0, Math.min(3, Math.round(Number(level) || 0)));
+    try {
+      window.localStorage?.setItem(DEBUG_SPLAT_SH_LEVEL_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugSplatShLevel', err);
+    }
+    set({ debugSplatShLevel: value });
+  },
+
+  setDebugLodSplatCount: (count) => {
+    const parsed = Math.round(Number(count));
+    const value = parsed === 0 ? 0 : Math.max(250000, Number.isFinite(parsed) ? parsed : 250000);
+    try {
+      window.localStorage?.setItem(DEBUG_LOD_SPLAT_COUNT_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugLodSplatCount', err);
+    }
+    set({ debugLodSplatCount: value });
+  },
+
+  setDebugLodRenderScale: (scale) => {
+    const value = Math.max(0.5, Number(scale) || 1);
+    try {
+      window.localStorage?.setItem(DEBUG_LOD_RENDER_SCALE_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugLodRenderScale', err);
+    }
+    set({ debugLodRenderScale: value });
+  },
+
+  setDebugMinSortIntervalMs: (interval) => {
+    const value = Math.max(0, Math.round(Number(interval) || 0));
+    try {
+      window.localStorage?.setItem(DEBUG_MIN_SORT_INTERVAL_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugMinSortIntervalMs', err);
+    }
+    set({ debugMinSortIntervalMs: value });
+  },
+
+  setDebugShowRenderStats: (show) => {
+    const value = Boolean(show);
+    try {
+      window.localStorage?.setItem(DEBUG_RENDER_STATS_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugShowRenderStats', err);
+    }
+    set({ debugShowRenderStats: value });
   },
 
   /** Sets rendering quality preset and persists it */

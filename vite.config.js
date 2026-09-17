@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import preact from '@preact/preset-vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { VitePWA } from 'vite-plugin-pwa'
+import { resolve } from 'node:path'
 
 const normalizeBasePath = (value) => {
   const text = String(value || '/').trim();
@@ -10,6 +11,7 @@ const normalizeBasePath = (value) => {
 }
 
 const base = normalizeBasePath(process.env.BASE_PATH || '/');
+const desktopFileOpenModule = resolve(__dirname, 'src/desktopFileOpen.js');
 
 export default defineConfig({
   plugins: [
@@ -28,6 +30,15 @@ export default defineConfig({
         display_override: ['fullscreen', 'standalone'],
         background_color: '#0c0d10',
         theme_color: '#0c0d10',
+        file_handlers: [
+          {
+            action: './',
+            accept: {
+              'application/octet-stream': ['.ply', '.sog'],
+            },
+            launch_type: 'single-client',
+          },
+        ],
         icons: [
           {
             src: `${base}radiaIcon_192.png`,
@@ -44,13 +55,29 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: `${base}index.html`,
+        navigateFallbackDenylist: [
+          /\/embed\.html(?:\?.*)?$/,
+        ],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff2}'],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024
       }
     })
   ],
   // Use BASE_PATH environment variable, defaulting to '/'
   base,
+  resolve: {
+    alias: {
+      '@desktop-file-open': desktopFileOpenModule,
+    },
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        embed: resolve(__dirname, 'embed.html'),
+      },
+    },
+  },
   server: {
     https: false,
     host: true

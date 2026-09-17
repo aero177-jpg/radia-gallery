@@ -12,11 +12,17 @@ import { loadNextAsset, loadPrevAsset } from '../fileLoader';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronLeft, faChevronRight, faPause, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { startSlideshow, stopSlideshow } from '../slideshowController';
+import { toggleAutoOrbit } from '../autoOrbit';
+import { normalizeAutoOrbitSettings } from '../autoOrbitConfig';
 
 function AssetNavigation({ onOpenSlideshowOptions }) {
   const assets = useStore((state) => state.assets);
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
+  const autoOrbitPlaying = useStore((state) => state.autoOrbitPlaying);
+  const isCustomModel = useStore((state) => state.isCustomModel);
+  const autoOrbitSettings = useStore((state) => state.fileCustomAnimation?.autoOrbit);
   const hasMultipleAssets = assets.length > 1;
+  const autoOrbitEnabled = isCustomModel && normalizeAutoOrbitSettings(autoOrbitSettings).enabled;
   const swipeRef = useRef(null);
 
   // Hold-to-open-options state
@@ -63,32 +69,36 @@ function AssetNavigation({ onOpenSlideshowOptions }) {
       holdTriggered.current = false;
       return;
     }
-    if (slideshowPlaying) {
+    if (autoOrbitEnabled) {
+      toggleAutoOrbit();
+    } else if (slideshowPlaying) {
       stopSlideshow();
     } else {
       startSlideshow();
     }
-  }, [slideshowPlaying]);
+  }, [autoOrbitEnabled, slideshowPlaying]);
 
   // Cleanup hold timer on unmount
   useEffect(() => () => {
     if (holdTimeout.current) clearTimeout(holdTimeout.current);
   }, []);
 
-  if (!hasMultipleAssets) {
+  if (!hasMultipleAssets && !autoOrbitEnabled) {
     return null;
   }
 
   return (
     <div class="nav-button-group">
-      <button
-        class="bottom-page-btn"
-        onClick={loadPrevAsset}
-        aria-label="Previous asset"
-        title="Previous asset"
-      >
-        <FontAwesomeIcon icon={faChevronLeft} />
-      </button>
+      {hasMultipleAssets && (
+        <button
+          class="bottom-page-btn"
+          onClick={loadPrevAsset}
+          aria-label="Previous asset"
+          title="Previous asset"
+        >
+          <FontAwesomeIcon icon={faChevronLeft} />
+        </button>
+      )}
       <button
         class="bottom-page-btn"
         onClick={handlePlayClick}
@@ -96,19 +106,25 @@ function AssetNavigation({ onOpenSlideshowOptions }) {
         onPointerUp={handlePlayHoldEnd}
         onPointerLeave={handlePlayHoldEnd}
         onPointerCancel={handlePlayHoldEnd}
-        aria-label={slideshowPlaying ? 'Pause slideshow' : 'Play slideshow'}
-        title={slideshowPlaying ? 'Pause slideshow (hold for options)' : 'Play slideshow (hold for options)'}
+        aria-label={autoOrbitEnabled
+          ? (autoOrbitPlaying ? 'Pause auto orbit' : 'Start auto orbit')
+          : (slideshowPlaying ? 'Pause slideshow' : 'Play slideshow')}
+        title={autoOrbitEnabled
+          ? (autoOrbitPlaying ? 'Pause auto orbit (hold for options)' : 'Start auto orbit (hold for options)')
+          : (slideshowPlaying ? 'Pause slideshow (hold for options)' : 'Play slideshow (hold for options)')}
       >
-        <FontAwesomeIcon icon={slideshowPlaying ? faPause : faPlay} />
+        <FontAwesomeIcon icon={(autoOrbitEnabled ? autoOrbitPlaying : slideshowPlaying) ? faPause : faPlay} />
       </button>
-      <button
-        class="bottom-page-btn"
-        onClick={loadNextAsset}
-        aria-label="Next asset"
-        title="Next asset"
-      >
-        <FontAwesomeIcon icon={faChevronRight} />
-      </button>
+      {hasMultipleAssets && (
+        <button
+          class="bottom-page-btn"
+          onClick={loadNextAsset}
+          aria-label="Next asset"
+          title="Next asset"
+        >
+          <FontAwesomeIcon icon={faChevronRight} />
+        </button>
+      )}
     </div>
   );
 }

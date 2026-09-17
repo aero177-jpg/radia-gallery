@@ -1,0 +1,94 @@
+.tetromino-loader {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  --tetromino-unit: min(96px, 17.723vw);
+}
+
+.tetromino-platform {
+  position: absolute;
+  width: min(280px, 84vw);
+  aspect-ratio: 1;
+  border: 8px solid color-mix(in srgb, #bdc1c9 90%, var(--tetromino-theme-color, #0c0d10));
+  border-radius: 50%;
+  background:
+    linear-gradient(rgb(255 255 255 / 15%), rgb(255 255 255 / 6%)),
+    color-mix(in srgb, var(--tetromino-theme-color, #363d50) 62%, transparent);
+box-shadow: rgba(24, 24, 31, 0.743) 0px 6px 12px -2px, rgba(0, 0, 0, 0.57) 0px 3px 7px -3px;
+  backdrop-filter: blur(4px) saturate(1.12);
+  -webkit-backdrop-filter: blur(4px) saturate(1.12);
+}
+
+.tetrominos {
+  position: relative;
+  width: calc(var(--tetromino-unit) * 2);
+  height: calc(var(--tetromino-unit) * 1.166667);
+  transform: translate(
+    calc(var(--tetromino-unit) * -0.5),
+    calc(var(--tetromino-unit) * -0.3)
+  );
+}
+
+.tetromino {
+  position: absolute;
+  width: var(--tetromino-unit);
+  height: calc(var(--tetromino-unit) * 1.166667);
+  background: color-mix(in srgb, var(--tetromino-theme-color, #363d50) 35%, #191b20);
+  mask: url("data:image/svg+xml;utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 612 684'%3E%3Cpath fill='%23000' d='M305.7 0L0 170.9v342.3L305.7 684 612 513.2V170.9L305.7 0z'/%3E%3C/svg%3E") no-repeat top center / contain;
+}
+
+.tetromino::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: color-mix(in srgb, #c5cbd7 90%, var(--tetromino-theme-color, #0c0d10));
+  mask: url("data:image/svg+xml;utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 612 684'%3E%3Cpath fill='%23000' d='M305.7 80.1l-233.6 131 233.6 131 234.2-131-234.2-131'/%3E%3C/svg%3E") no-repeat top center / contain;
+}
+
+.box1 {
+  animation: tetromino1 1.5s ease-out infinite;
+}
+
+.box2 {
+  animation: tetromino2 1.5s ease-out infinite;
+}
+
+.box3 {
+  z-index: 2;
+  animation: tetromino3 1.5s ease-out infinite;
+}
+
+.box4 {
+  animation: tetromino4 1.5s ease-out infinite;
+}
+
+@keyframes tetromino1 {
+  0%, 40% { transform: translate(0, 0); }
+  50% { transform: translate(50%, -24.107%); }
+  60%, 100% { transform: translate(100%, 0); }
+}
+
+@keyframes tetromino2 {
+  0%, 20% { transform: translate(100%, 0); }
+  40%, 100% { transform: translate(150%, 24.107%); }
+}
+
+@keyframes tetromino3 {
+  0% { transform: translate(150%, 24.107%); }
+  20%, 60% { transform: translate(100%, 48.214%); }
+  90%, 100% { transform: translate(50%, 24.107%); }
+}
+
+@keyframes tetromino4 {
+  0%, 60% { transform: translate(50%, 24.107%); }
+  90%, 100% { transform: translate(0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tetromino {
+    animation: none;
+  }
+}

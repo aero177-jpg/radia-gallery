@@ -11,11 +11,12 @@ import TitleCard from './TitleCard';
 import SidePanel from './SidePanel';
 import MobileSheet from './MobileSheet';
 import AssetSidebar from './AssetSidebar';
-import { initViewer, startRenderLoop, requestRender } from '../viewer';
+import { initViewer, startRenderLoop, requestRender, suspendRenderLoop } from '../viewer';
 import { resize, loadFromStorageSource, loadNextAsset, loadPrevAsset } from '../fileLoader';
 import { resetViewWithImmersive } from '../cameraUtils';
 import useOutsideClick from '../utils/useOutsideClick';
 
+import { initVrSupport, disposeVrSupport } from '../vrMode';
 import { loadR2Settings } from '../storage/r2Settings.js';
 import ConnectStorageDialog from './ConnectStorageDialog';
 import ControlsModal from './ControlsModal';
@@ -30,9 +31,17 @@ import { getImportUrlFromLocation, clearImportUrlFromLocation, importBundleFromU
 import ImportFromUrlModal from './ImportFromUrlModal';
 import { resetLandingView } from '../utils/resetLandingView.js';
 import BottomControls from './BottomControls';
+import VrOverlay from './VrOverlay';
 import useMobileState from '../utils/useMobileState';
+import { enableImmersiveMode, disableImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled } from '../immersiveMode';
+import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport';
 import { fadeInViewer, fadeOutViewer, restoreViewerVisibility } from '../utils/viewerFade';
 import useDemoCollections from './useDemoCollections';
+import {
+  hasPendingDesktopFileOpen,
+  initializeDesktopFileOpen,
+  subscribeDesktopFileOpenPending,
+} from '@desktop-file-open';
 
 /** Delay before resize after panel toggle animation completes */
 const PANEL_TRANSITION_MS = 350;
@@ -70,6 +79,8 @@ const isForceTitleEnabled = () => {
 };
 
 function App() {
+  const fileOpenPendingAtMount = hasPendingDesktopFileOpen();
+
   // Store state
   const panelOpen = useStore((state) => state.panelOpen);
   const isMobile = useStore((state) => state.isMobile);
@@ -99,7 +110,8 @@ function App() {
     return !isHomePath(window.location.pathname);
   });
   // Landing screen visibility (controls TitleCard fade-in/out)
-  const [landingVisible, setLandingVisible] = useState(() => assets.length === 0 && !activeSourceId);
+  const [landingVisible, setLandingVisible] = useState(() => !fileOpenPendingAtMount && assets.length === 0 && !activeSourceId);
+  const [desktopFileOpening, setDesktopFileOpening] = useState(fileOpenPendingAtMount);
   const [routingResolved, setRoutingResolved] = useState(() => {
     if (typeof window === 'undefined') return false;
     return isHomePath(window.location.pathname);
@@ -109,13 +121,14 @@ function App() {
     setRoutingResolved(true);
   }, []);
   const [hasDefaultSource, setHasDefaultSource] = useState(false);
-  const isLandingEmptyState = landingVisible && assets.length === 0 && !activeSourceId;
+  const isLandingEmptyState = landingVisible && !desktopFileOpening && assets.length === 0 && !activeSourceId;
   const showLandingOverlay = routingResolved && isLandingEmptyState;
   const showViewerUi = routingResolved && !isLandingEmptyState;
   
   // File input + storage dialog state for title card actions
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
   const [storageDialogInitialTier, setStorageDialogInitialTier] = useState(null);
+  const desktopDropRef = useRef(null);
 
   const [slideshowOptionsOpen, setSlideshowOptionsOpen] = useState(false);
 
@@ -336,7 +349,47 @@ function App() {
     setStatus,
     handleAssets,
     handleImages,
+    desktopDropRef,
   });
+
+  useEffect(() => subscribeDesktopFileOpenPending((pending) => {
+    setDesktopFileOpening(pending);
+    if (pending) setLandingVisible(false);
+  }), []);
+
+  useEffect(() => {
+    if (!viewerReady) return;
+
+    let disposed = false;
+    let unlisten = () => {};
+
+    void initializeDesktopFileOpen(async (files) => {
+      try {
+        await handleAssets(files);
+      } finally {
+        setDesktopFileOpening(false);
+      }
+    }, () => {
+      setDesktopFileOpening(true);
+      setLandingVisible(false);
+    }, (isDragging) => {
+      desktopDropRef.current?.(isDragging);
+    }).then((cleanup) => {
+      if (disposed) {
+        cleanup();
+      } else {
+        unlisten = cleanup;
+      }
+    }).catch((error) => {
+      console.error('[Desktop] Native file open initialization failed:', error);
+      setStatus('Could not open the selected desktop file');
+    });
+
+    return () => {
+      disposed = true;
+      unlisten();
+    };
+  }, [handleAssets, setStatus, viewerReady]);
 
   /**
    * Initialize Three.js viewer on mount.
@@ -345,17 +398,37 @@ function App() {
   useEffect(() => {
     const viewerEl = document.getElementById('viewer');
     if (!viewerEl) return;
+    let disposed = false;
     
     initViewer(viewerEl);
     startRenderLoop();
+    void initVrSupport(viewerEl);
     setViewerReady(true);
+
+    if (supportsImmersiveControls()) {
+      const store = useStore.getState();
+      setTouchPanEnabled(true);
+      setImmersiveSensitivityMultiplier(store.immersiveSensitivity);
+      void enableImmersiveMode().then((enabled) => {
+        if (disposed) {
+          if (enabled) disableImmersiveMode();
+          return;
+        }
+        store.setImmersiveMode(enabled);
+      });
+    }
     
     // Handle window resize
     window.addEventListener('resize', resize);
     resize();
     
     return () => {
+      disposed = true;
       window.removeEventListener('resize', resize);
+      disableImmersiveMode();
+      useStore.getState().setImmersiveMode(false);
+      void disposeVrSupport();
+      suspendRenderLoop();
     };
   }, []);
 
@@ -436,6 +509,10 @@ function App() {
 
   // Keep landingVisible in sync: show when no assets, hide when assets present
   useEffect(() => {
+    if (desktopFileOpening) {
+      setLandingVisible(false);
+      return;
+    }
     if (hasDefaultSource) {
       setLandingVisible(false);
       return;
@@ -445,7 +522,7 @@ function App() {
     } else if (activeSourceId) {
       setLandingVisible(false);
     }
-  }, [assets.length, activeSourceId, hasDefaultSource]);
+  }, [assets.length, activeSourceId, desktopFileOpening, hasDefaultSource]);
 
   useEffect(() => {
     if (!showLandingOverlay) return;
@@ -486,17 +563,19 @@ function App() {
         hidden 
         onChange={handleUploadChange}
       />
-      <TitleCard
-        show={showLandingOverlay || forceTitleEnabled}
-        forceFrostedTitleOnly={forceTitleEnabled}
-        onPickFile={handlePickFile}
-        onOpenStorage={handleOpenStorage}
-        onLoadDemo={handleLoadDemo}
-        onSelectSource={handleSelectSource}
-        onOpenCloudGpu={handleOpenCloudGpu}
-        onInstallDemoCollections={handleInstallDemoCollections}
-        demoCollectionOptions={demoCollectionOptions}
-      />
+      {!desktopFileOpening && (
+        <TitleCard
+          show={showLandingOverlay || forceTitleEnabled}
+          forceFrostedTitleOnly={forceTitleEnabled}
+          onPickFile={handlePickFile}
+          onOpenStorage={handleOpenStorage}
+          onLoadDemo={handleLoadDemo}
+          onSelectSource={handleSelectSource}
+          onOpenCloudGpu={handleOpenCloudGpu}
+          onInstallDemoCollections={handleInstallDemoCollections}
+          demoCollectionOptions={demoCollectionOptions}
+        />
+      )}
         <Viewer
           viewerReady={viewerReady}
           dropOverlay={dropOverlay}
@@ -505,6 +584,8 @@ function App() {
 
       {showViewerUi && (isMobile && isPortrait ? <MobileSheet /> : <SidePanel />)}
       {showViewerUi && <BottomControls onOpenSlideshowOptions={() => setSlideshowOptionsOpen(true)} />}
+
+      <VrOverlay />
 
       <ConnectStorageDialog
         isOpen={storageDialogOpen}

@@ -5,16 +5,19 @@
 
 import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import { useStore } from '../store';
-import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, setStereoEyeSeparation, setStereoAspect as setStereoAspectRatio, setStereoScale as setStereoRenderScale, setStereoOverlap as setViewerStereoOverlap, setStereoEffectEnabled, getFocusDistance, calculateOptimalEyeSeparation, setOriginalImageAspect } from '../viewer';
+import { camera, controls, defaultCamera, defaultControls, dollyZoomBaseDistance, dollyZoomBaseFov, requestRender, THREE, setStereoEyeSeparation, setStereoAspect as setStereoAspectRatio, setStereoScale as setStereoRenderScale, setStereoOverlap as setViewerStereoOverlap, setStereoEffectEnabled, getFocusDistance, calculateOptimalEyeSeparation, setOriginalImageAspect, setShowGrid } from '../viewer';
 import { FocusIcon, KeyboardIcon } from '../icons/customIcons';
-import { applyCameraRangeDegrees, restoreHomeView, resetViewWithImmersive } from '../cameraUtils';
+import { applyCameraRangeDegrees, restoreHomeView, resetViewWithImmersive, tweenCameraToView } from '../cameraUtils';
 import { currentMesh, raycaster, SplatMesh, scene } from '../viewer';
 import { updateDollyZoomBaselineFromCamera } from '../viewer';
 import { startAnchorTransition } from '../cameraAnimations';
 import { enableImmersiveMode, disableImmersiveMode, recenterInImmersiveMode, isImmersiveModeActive, pauseImmersiveMode, resumeImmersiveMode, setImmersiveSensitivityMultiplier, setTouchPanEnabled, syncImmersiveBaseline } from '../immersiveMode';
 import { supportsImmersiveControls } from '../utils/immersiveDeviceSupport.js';
-import { saveFocusDistance, clearFocusDistance } from '../fileStorage';
-import { updateFocusDistanceInCache, clearFocusDistanceInCache } from '../splatManager';
+import { saveFocusDistance, clearFocusDistance, saveAutoOrbitSettings } from '../fileStorage';
+import { getSplatCache, updateFocusDistanceInCache, clearFocusDistanceInCache, updateAutoOrbitInCache } from '../splatManager';
+import { AUTO_ORBIT_PATH_OPTIONS, AUTO_ORBIT_SPEED_OPTIONS, getAutoOrbitParameters, normalizeAutoOrbitSettings } from '../autoOrbitConfig';
+import { handleAutoOrbitInputStart, refreshAutoOrbit, scheduleAutoOrbit } from '../autoOrbit';
+import { stopSlideshow } from '../slideshowController';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faEye, faEyeSlash, faSpinner, faCompressAlt, faCheck, faTimes, faPlus, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
 import { loadSplatFile, loadAssetByIndex } from '../fileLoader';
@@ -23,11 +26,15 @@ import { savePreviewBlob } from '../fileStorage';
 import {
   captureCustomMetadataPayload,
   saveCustomMetadataViewForAsset,
+  saveCustomCameraMovementSpeedForAsset,
   addCustomMetadataViewForAsset,
   clearCustomMetadataViewForAsset,
   applyFullOrbitConstraints,
+  applyCustomModelTransform,
+  normalizeModelRotation,
   restoreOrbitConstraints,
 } from "../customMetadata.js";
+import { enterVrSession } from '../vrMode';
 import { updateViewerAspectRatio, resize } from '../layout.js';
 
 /** Default orbit range in degrees */
@@ -46,6 +53,13 @@ const ASPECT_OPTIONS = [
   { value: '9:16', label: '9:16', ratio: 9 / 16 },
   { value: '4:3', label: '4:3', ratio: 4 / 3 },
   { value: '3:4', label: '3:4', ratio: 3 / 4 },
+];
+
+const BASE_ORIENTATION_OPTIONS = [
+  { value: 'y-up', label: 'Y up' },
+  { value: 'y-down', label: 'Y down' },
+  { value: 'z-up', label: 'Z up' },
+  { value: 'z-down', label: 'Z down' },
 ];
 
 const aspectKeyToRatio = (key) => {
@@ -150,6 +164,11 @@ const degreesToSliderValue = (degrees) => {
  * @returns {string} Formatted string
  */
 const formatDegrees = (degrees) => (degrees < 10 ? degrees.toFixed(1) : degrees.toFixed(0));
+const MODEL_ROTATION_VIEWS = [
+  { axis: 'y', label: 'Front', cameraView: 'front' },
+  { axis: 'x', label: 'Side', cameraView: 'side' },
+  { axis: 'z', label: 'Top', cameraView: 'top' },
+];
 
 const computeImmersiveRangeFloor = (sensitivity) => {
   const extra = Math.max(0, sensitivity - 1) * IMMERSIVE_RANGE_PER_SENSITIVITY;
@@ -182,6 +201,9 @@ function CameraControls() {
   const toggleViewerFovSlider = useStore((state) => state.toggleViewerFovSlider);
   const cameraRange = useStore((state) => state.cameraRange);
   const setCameraRange = useStore((state) => state.setCameraRange);
+  const cameraMovementSpeed = useStore((state) => state.cameraMovementSpeed);
+  const setCameraMovementSpeed = useStore((state) => state.setCameraMovementSpeed);
+  const isCustomModel = useStore((state) => state.isCustomModel);
   const addLog = useStore((state) => state.addLog);
   const cameraSettingsExpanded = useStore((state) => state.cameraSettingsExpanded);
   const toggleCameraSettingsExpanded = useStore((state) => state.toggleCameraSettingsExpanded);
@@ -195,6 +217,8 @@ function CameraControls() {
   const currentAssetIndex = useStore((state) => state.currentAssetIndex);
   const setAssets = useStore((state) => state.setAssets);
   const setCurrentAssetIndex = useStore((state) => state.setCurrentAssetIndex);
+  const fileCustomAnimation = useStore((state) => state.fileCustomAnimation);
+  const setFileCustomAnimation = useStore((state) => state.setFileCustomAnimation);
   const hasCustomFocus = useStore((state) => state.hasCustomFocus);
   const setHasCustomFocus = useStore((state) => state.setHasCustomFocus);
   const setFocusSettingActive = useStore((state) => state.setFocusSettingActive);
@@ -212,6 +236,8 @@ function CameraControls() {
   const setStereoScale = useStore((state) => state.setStereoScale);
   const stereoOverlap = useStore((state) => state.stereoOverlap);
   const setStereoOverlap = useStore((state) => state.setStereoOverlap);
+  const vrSupported = useStore((state) => state.vrSupported);
+  const vrSessionActive = useStore((state) => state.vrSessionActive);
   const hasAssetLoaded = useStore((state) => state.fileInfo?.name && state.fileInfo.name !== '-');
   const customMetadataControlsVisible = useStore((state) => state.customMetadataControlsVisible);
   const customMetadataAvailable = useStore((state) => state.customMetadataAvailable);
@@ -219,6 +245,10 @@ function CameraControls() {
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const customModelScale = useStore((state) => state.customModelScale);
   const setCustomModelScale = useStore((state) => state.setCustomModelScale);
+  const customBaseOrientation = useStore((state) => state.customBaseOrientation);
+  const setCustomBaseOrientation = useStore((state) => state.setCustomBaseOrientation);
+  const customModelRotation = useStore((state) => state.customModelRotation);
+  const setCustomModelRotation = useStore((state) => state.setCustomModelRotation);
   const customAspectRatio = useStore((state) => state.customAspectRatio);
   const setCustomAspectRatio = useStore((state) => state.setCustomAspectRatio);
   const setCustomMetadataAvailable = useStore((state) => state.setCustomMetadataAvailable);
@@ -245,9 +275,121 @@ function CameraControls() {
   focusModeRef.current = focusMode;
   const [isClearingCustomMetadata, setIsClearingCustomMetadata] = useState(false);
   const [isSavingNewView, setIsSavingNewView] = useState(false);
+  const [showGrid, setShowGridVisible] = useState(false);
+  const [modelRotationExpanded, setModelRotationExpanded] = useState(false);
   const [customNearClip, setCustomNearClip] = useState(
     clampCustomNearClip(camera?.near ?? defaultCamera?.near ?? DEFAULT_CUSTOM_NEAR_CLIP),
   );
+
+  const handleCameraMovementSpeedChange = useCallback(async (event) => {
+    const speed = event.target.value;
+    setCameraMovementSpeed(speed);
+
+    if (!currentFileName || currentFileName === '-') return;
+    const saved = await saveCustomCameraMovementSpeedForAsset(currentFileName, speed);
+    if (!saved) addLog('Failed to save camera movement speed');
+  }, [currentFileName, setCameraMovementSpeed, addLog]);
+
+  const autoOrbitAsset = assets[currentAssetIndex];
+  const autoOrbitCacheKey = autoOrbitAsset?.cacheKey || autoOrbitAsset?.baseAssetId || autoOrbitAsset?.id;
+  const autoOrbitStoredSettings = getSplatCache().get(autoOrbitCacheKey)?.storedSettings;
+  const autoOrbitSettings = normalizeAutoOrbitSettings(
+    autoOrbitStoredSettings?.autoOrbit
+      || autoOrbitStoredSettings?.customAnimation?.autoOrbit
+      || fileCustomAnimation?.autoOrbit,
+  );
+  const autoOrbitViewOverride = autoOrbitAsset?.isViewInstance && autoOrbitAsset?.viewId
+    ? autoOrbitStoredSettings?.viewCustomAnimations?.[autoOrbitAsset.viewId]?.autoOrbit
+    : null;
+
+  const handleAutoOrbitChange = useCallback((changes) => {
+    const nextAutoOrbit = normalizeAutoOrbitSettings({
+      ...autoOrbitSettings,
+      ...changes,
+    });
+    setFileCustomAnimation({
+      autoOrbit: normalizeAutoOrbitSettings({
+        ...nextAutoOrbit,
+        ...(autoOrbitViewOverride || {}),
+        enabled: nextAutoOrbit.enabled,
+      }),
+    });
+
+    if (nextAutoOrbit.enabled) {
+      stopSlideshow();
+    }
+
+    const asset = assets[currentAssetIndex];
+    const baseName = asset?.baseAssetName || currentFileName;
+    const cacheKey = asset?.cacheKey || asset?.baseAssetId || asset?.id;
+    const hasEnabledChange = Object.prototype.hasOwnProperty.call(changes, 'enabled');
+    const orbitParameters = getAutoOrbitParameters(nextAutoOrbit);
+    const hasParameterChange = ['mode', 'speed', 'path']
+      .some((key) => Object.prototype.hasOwnProperty.call(changes, key));
+
+    if (baseName && baseName !== '-') {
+      const saves = [];
+      if (hasEnabledChange) {
+        saves.push(saveAutoOrbitSettings(baseName, { enabled: nextAutoOrbit.enabled }));
+      }
+      if (hasParameterChange) {
+        saves.push(saveAutoOrbitSettings(baseName, orbitParameters));
+      }
+      Promise.all(saves).catch(() => addLog('Failed to save auto orbit settings'));
+    }
+    if (cacheKey) {
+      if (hasEnabledChange) updateAutoOrbitInCache(cacheKey, { enabled: nextAutoOrbit.enabled });
+      if (hasParameterChange) {
+        updateAutoOrbitInCache(cacheKey, orbitParameters);
+      }
+    }
+    refreshAutoOrbit();
+  }, [addLog, assets, autoOrbitSettings, autoOrbitViewOverride, currentAssetIndex, currentFileName, setFileCustomAnimation]);
+
+  useEffect(() => {
+    if (isCustomModel) {
+      refreshAutoOrbit();
+    }
+  }, [currentAssetIndex, fileCustomAnimation?.autoOrbit, isCustomModel]);
+
+  useEffect(() => {
+    if (!controls) return;
+    controls.enableRotate = autoOrbitSettings.mode !== 'rotate';
+  }, [autoOrbitSettings.mode]);
+
+  const handleBaseOrientationChange = useCallback((event) => {
+    const baseOrientation = event.target.value;
+    setCustomBaseOrientation(baseOrientation);
+    applyCustomModelTransform(currentMesh, {
+      applyCoordinateFlip: true,
+      modelScale: customModelScale,
+      baseOrientation,
+      modelRotation: customModelRotation,
+    });
+  }, [customModelRotation, customModelScale, setCustomBaseOrientation]);
+
+  const handleModelRotationChange = useCallback((axis, event) => {
+    const value = Number(event.target.value);
+    if (!Number.isFinite(value)) return;
+
+    const nextRotation = normalizeModelRotation({
+      ...customModelRotation,
+      [axis]: value,
+    });
+    setCustomModelRotation(nextRotation);
+    applyCustomModelTransform(currentMesh, {
+      applyCoordinateFlip: true,
+      modelScale: customModelScale,
+      baseOrientation: customBaseOrientation,
+      modelRotation: nextRotation,
+    });
+  }, [customBaseOrientation, customModelRotation, customModelScale, setCustomModelRotation]);
+
+  const handleGridToggle = useCallback((event) => {
+    const enabled = event.target.checked;
+    setShowGridVisible(enabled);
+    setShowGrid(enabled);
+  }, []);
 
   // Sync focus mode with custom focus state from store
   useEffect(() => {
@@ -481,6 +623,7 @@ function CameraControls() {
     const newFov = Number(e.target.value);
     if (!Number.isFinite(newFov) || !camera || !controls) return;
 
+    handleAutoOrbitInputStart();
     setFov(newFov);
 
     // Apply dolly-zoom effect to maintain object size at focus point
@@ -503,6 +646,7 @@ function CameraControls() {
       syncImmersiveBaseline();
     }
     requestRender();
+    scheduleAutoOrbit();
   };
 
   // Track if we're actively adjusting camera range to pause immersive mode
@@ -646,6 +790,12 @@ function CameraControls() {
     && !activeAsset?.viewId
   );
 
+  useEffect(() => {
+    if (customMetadataControlsVisible) {
+      setModelRotationExpanded(isFirstUnsavedCustomView);
+    }
+  }, [customMetadataControlsVisible, isFirstUnsavedCustomView]);
+
   const orbitLimitsDisabled = customMetadataAvailable || metadataMissing || slideshowPlaying;
 
   // Enable full orbit whenever orbit limits are disabled
@@ -769,6 +919,8 @@ function CameraControls() {
 
     const payload = captureCustomMetadataPayload({
       modelScale: customModelScale,
+      baseOrientation: customBaseOrientation,
+      modelRotation: customModelRotation,
       aspectRatio: aspectKeyToRatio(customAspectRatio),
     });
 
@@ -809,7 +961,7 @@ function CameraControls() {
     setMetadataMissing(false);
     setCustomMetadataControlsVisible(false);
     addLog('Custom metadata saved');
-  }, [currentFileName, customModelScale, customAspectRatio, addLog, assets, currentAssetIndex, updateAssetPreview, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setAssets]);
+  }, [currentFileName, customModelScale, customBaseOrientation, customModelRotation, customAspectRatio, addLog, assets, currentAssetIndex, updateAssetPreview, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setAssets]);
 
   /**
    * Saves the initial view when no metadata exists, but keeps the editor
@@ -831,6 +983,8 @@ function CameraControls() {
 
     const payload = captureCustomMetadataPayload({
       modelScale: customModelScale,
+      baseOrientation: customBaseOrientation,
+      modelRotation: customModelRotation,
       aspectRatio: aspectKeyToRatio(customAspectRatio),
     });
 
@@ -873,7 +1027,7 @@ function CameraControls() {
     setCustomMetadataControlsVisible(true);
     setCameraSettingsExpanded(true);
     addLog('Initial view saved — reposition camera and save more views');
-  }, [currentFileName, customModelScale, customAspectRatio, addLog, assets, currentAssetIndex, updateAssetPreview, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setAssets, setCameraSettingsExpanded]);
+  }, [currentFileName, customModelScale, customBaseOrientation, customModelRotation, customAspectRatio, addLog, assets, currentAssetIndex, updateAssetPreview, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setAssets, setCameraSettingsExpanded]);
 
   const handleSaveAndAddNewView = useCallback(async () => {
     if (!currentFileName || currentFileName === '-') {
@@ -889,6 +1043,8 @@ function CameraControls() {
 
     const payload = captureCustomMetadataPayload({
       modelScale: customModelScale,
+      baseOrientation: customBaseOrientation,
+      modelRotation: customModelRotation,
       aspectRatio: aspectKeyToRatio(customAspectRatio),
     });
 
@@ -964,7 +1120,7 @@ function CameraControls() {
     // Ensure editor stays open after view instance load (which resets to false)
     setCustomMetadataControlsVisible(true);
     setCameraSettingsExpanded(true);
-  }, [currentFileName, assets, currentAssetIndex, customModelScale, customAspectRatio, setAssets, setCurrentAssetIndex, addLog, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, updateAssetPreview, setCameraSettingsExpanded]);
+  }, [currentFileName, assets, currentAssetIndex, customModelScale, customBaseOrientation, customModelRotation, customAspectRatio, setAssets, setCurrentAssetIndex, addLog, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, updateAssetPreview, setCameraSettingsExpanded]);
 
   const handleClearCustomMetadata = useCallback(async () => {
     if (!currentFileName || currentFileName === '-' || isClearingCustomMetadata) return;
@@ -1009,6 +1165,8 @@ function CameraControls() {
       setMetadataMissing(false);
       setCustomMetadataControlsVisible(false);
       setCustomModelScale(1);
+      setCustomBaseOrientation('y-down');
+      setCustomModelRotation({ x: 0, y: 0, z: 0 });
       setCustomAspectRatio('full');
       setCustomNearClip(clampCustomNearClip(defaultCamera?.near ?? DEFAULT_CUSTOM_NEAR_CLIP));
       setOriginalImageAspect(null);
@@ -1027,7 +1185,7 @@ function CameraControls() {
     } finally {
       setIsClearingCustomMetadata(false);
     }
-  }, [currentFileName, isClearingCustomMetadata, addLog, assets, currentAssetIndex, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setCustomModelScale, setCustomAspectRatio, setAssets, setCurrentAssetIndex, setHasCustomFocus]);
+  }, [currentFileName, isClearingCustomMetadata, addLog, assets, currentAssetIndex, setCustomMetadataAvailable, setMetadataMissing, setCustomMetadataControlsVisible, setCustomModelScale, setCustomBaseOrientation, setCustomModelRotation, setCustomAspectRatio, setAssets, setCurrentAssetIndex, setHasCustomFocus]);
 
   /**
    * Closes edit mode and reloads current asset to restore its saved camera pose.
@@ -1177,6 +1335,20 @@ function CameraControls() {
           </>
         )}
 
+        {/* VR button - shown when VR is supported and an asset is loaded */}
+        {vrSupported && hasAssetLoaded && (
+          <div class="control-row">
+            <button
+              class={`secondary enter-vr-btn ${vrSessionActive ? 'vr-active' : ''}`}
+              onClick={() => {
+                enterVrSession();
+              }}
+            >
+              {vrSessionActive ? 'Exit VR' : 'Enter VR'}
+            </button>
+          </div>
+        )}
+
         {/* Quality preset */}
         <div class="control-row">
           <span class="control-label">Quality</span>
@@ -1196,6 +1368,75 @@ function CameraControls() {
             </select>
           </div>
         </div>
+
+        {isCustomModel && (
+          <>
+            <div class="control-row">
+              <span class="control-label">Movement speed</span>
+              <div class="control-track">
+                <select
+                  class="quality-select"
+                  value={cameraMovementSpeed}
+                  onChange={handleCameraMovementSpeedChange}
+                >
+                  <option value="slower">Slower</option>
+                  <option value="default">Default</option>
+                  <option value="faster">Faster</option>
+                </select>
+              </div>
+            </div>
+            <div class="control-row animate-toggle-row">
+              <span class="control-label">Free look</span>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  checked={autoOrbitSettings.mode === 'rotate'}
+                  onChange={(event) => handleAutoOrbitChange({ mode: event.target.checked ? 'rotate' : 'orbit' })}
+                />
+                <span class="switch-track" aria-hidden="true" />
+              </label>
+            </div>
+            <div class="control-row animate-toggle-row">
+              <span class="control-label">Auto orbit</span>
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  checked={autoOrbitSettings.enabled}
+                  onChange={(event) => handleAutoOrbitChange({ enabled: event.target.checked })}
+                />
+                <span class="switch-track" aria-hidden="true" />
+              </label>
+            </div>
+            {autoOrbitSettings.enabled && (
+              <div class="control-row auto-orbit-options">
+                <div class="control-track">
+                  <select
+                    class="quality-select"
+                    value={autoOrbitSettings.speed}
+                    onChange={(event) => handleAutoOrbitChange({ speed: event.target.value })}
+                    aria-label="Auto orbit speed"
+                    title="Auto orbit speed"
+                  >
+                    {AUTO_ORBIT_SPEED_OPTIONS.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                  <select
+                    class="quality-select"
+                    value={autoOrbitSettings.path}
+                    onChange={(event) => handleAutoOrbitChange({ path: event.target.value })}
+                    aria-label="Auto orbit path"
+                    title="Auto orbit path"
+                  >
+                    {AUTO_ORBIT_PATH_OPTIONS.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Eye separation slider - shown when stereo is enabled */}
         {stereoEnabled && (
@@ -1378,7 +1619,7 @@ function CameraControls() {
           <div class="custom-metadata-section">
             <div class="section-header">
               <span class="section-title">Custom View Settings</span>
-              <span class="section-hint">Position camera, then save</span>
+              {/* <span class="section-hint">Position camera, then save</span> */}
             </div>
             
             <div class="control-row">
@@ -1415,6 +1656,84 @@ function CameraControls() {
               </div>
             </div>
 
+            <div class="model-rotation-section">
+              <button
+                type="button"
+                class="model-rotation-toggle"
+                onClick={() => setModelRotationExpanded((expanded) => !expanded)}
+                aria-expanded={modelRotationExpanded}
+              >
+                <span>Model rotation</span>
+                <FontAwesomeIcon
+                  icon={faChevronDown}
+                  className={modelRotationExpanded ? 'chevron is-open' : 'chevron'}
+                />
+              </button>
+
+              {modelRotationExpanded && (
+                <div class="model-rotation-content">
+                  <div class="control-row">
+              <span class="control-label">Base orientation</span>
+              <div class="control-track">
+                <select
+                  class="quality-select"
+                  value={customBaseOrientation}
+                  onChange={handleBaseOrientationChange}
+                >
+                  {BASE_ORIENTATION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+                  {MODEL_ROTATION_VIEWS.map(({ axis, label, cameraView }) => {
+                    const percentage = customModelRotation[axis];
+                    return (
+                      <div class="control-row" key={axis}>
+                        <label class="control-label" for={`model-rotation-${axis}`}>{label}</label>
+                        <div class="control-track model-rotation-track">
+                          <button
+                            type="button"
+                            class="secondary model-rotation-snap-btn"
+                            onClick={() => tweenCameraToView(cameraView)}
+                            title={`Tween camera to ${label.toLowerCase()} view`}
+                          >
+                            View
+                          </button>
+                          <input
+                            id={`model-rotation-${axis}`}
+                            class="model-rotation-input"
+                            type="number"
+                            min="-100"
+                            max="100"
+                            step="0.1"
+                            value={percentage}
+                            onInput={(event) => handleModelRotationChange(axis, event)}
+                            aria-label={`${axis.toUpperCase()} model rotation percentage`}
+                          />
+                          <span class="control-value">%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div class="control-row">
+                    <span class="control-label">Grid</span>
+                    <div class="control-track">
+                      <input
+                        type="checkbox"
+                        checked={showGrid}
+                        onChange={handleGridToggle}
+                        aria-label="Show orientation grid"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {isFirstUnsavedCustomView ? (
               <>
                 <div class="control-row clear-custom-row clear-custom-row--top">
@@ -1439,25 +1758,24 @@ function CameraControls() {
               </>
             ) : (
               <>
-                <div class="control-row clear-custom-row clear-custom-row--top">
+                <div class="custom-metadata-actions">
                   <button
                     type="button"
-                    class="clear-custom-btn is-reset"
+                    class="secondary"
                     onClick={handleCloseEditMode}
                     disabled={isSavingNewView}
                   >
                     Close
                   </button>
+                  <button
+                    class="primary-button"
+                    onClick={handleSaveCustomMetadata}
+                    disabled={isSavingNewView}
+                  >
+                    <FontAwesomeIcon icon={faFloppyDisk} />
+                    Update
+                  </button>
                 </div>
-
-                <button 
-                  class="primary-button"
-                  onClick={handleSaveCustomMetadata}
-                  disabled={isSavingNewView}
-                >
-                  <FontAwesomeIcon icon={faFloppyDisk} />
-                  Update and close
-                </button>
 
                 <button
                   class="primary-button success"

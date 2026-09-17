@@ -43,11 +43,20 @@ function ConfirmDropModal({
   );
 }
 
-export function useViewerDrop({ activeSourceId, setStatus, handleAssets, handleImages }) {
+export function useViewerDrop({ activeSourceId, setStatus, handleAssets, handleImages, desktopDropRef }) {
   const [isViewerDragging, setIsViewerDragging] = useState(false);
   const [dropModalOpen, setDropModalOpen] = useState(false);
   const [pendingDrop, setPendingDrop] = useState(null);
   const dragDepthRef = useRef(0);
+
+  useEffect(() => {
+    if (desktopDropRef) {
+      desktopDropRef.current = setIsViewerDragging;
+    }
+    return () => {
+      if (desktopDropRef) desktopDropRef.current = null;
+    };
+  }, [desktopDropRef]);
 
   const handleSessionOnlyDrop = useCallback(async (files) => {
     const hasAssets = getAssetList().length > 0;

@@ -18,6 +18,7 @@ import {
 import { useStore } from "./store.js";
 import { startSmoothResetAnimation, cancelResetAnimation } from "./cameraAnimations.js";
 import { resize } from "./layout.js";
+import { cancelAutoOrbit, scheduleAutoOrbit } from './autoOrbit.js';
 
 // Helper to access store
 const getStoreState = () => useStore.getState();
@@ -51,6 +52,7 @@ export const saveHomeView = () => {
 export const restoreHomeView = () => {
   if (!homeView) return;
 
+  cancelAutoOrbit();
   const store = getStoreState();
   store.setAnchorState({ active: false, distance: null });
   const targetState = {
@@ -98,6 +100,7 @@ export const restoreHomeView = () => {
     requestRender();
     
     if (resize) resize();
+    scheduleAutoOrbit();
     return;
   }
 
@@ -134,6 +137,7 @@ export const restoreHomeView = () => {
       
       // Trigger resize
       if (resize) resize();
+      scheduleAutoOrbit();
     },
   });
 };
@@ -147,6 +151,33 @@ export const applyFocusDistanceOverride = (distance) => {
   controls.update();
   updateDollyZoomBaselineFromCamera();
   requestRender();
+};
+
+/**
+ * Tween the camera to a conventional inspection view without changing the
+ * model transform or the saved custom camera pose.
+ */
+export const tweenCameraToView = async (view) => {
+  if (!camera || !controls) return;
+
+  cancelAutoOrbit();
+  const target = controls.target.clone();
+  const distance = Math.max(camera.position.distanceTo(target), 0.01);
+  const viewConfig = {
+    front: { direction: new THREE.Vector3(0, 0, 1), up: new THREE.Vector3(0, 1, 0) },
+    side: { direction: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 1, 0) },
+    top: { direction: new THREE.Vector3(0, 1, 0), up: new THREE.Vector3(0, 0, -1) },
+  }[view];
+
+  if (!viewConfig) return;
+
+  await animateCameraMutation(() => {
+    camera.position.copy(target).addScaledVector(viewConfig.direction, distance);
+    camera.up.copy(viewConfig.up);
+    camera.lookAt(target);
+    controls.update();
+  }, { animate: true, duration: 400 });
+  scheduleAutoOrbit();
 };
 
 // Camera pose helpers -------------------------------------------------------

@@ -1,0 +1,10 @@
+.tetromino-platform {
+  position: absolute;
+  width: min(520px, 96vw);
+  aspect-ratio: 612 / 262;
+  background: var(--tetromino-theme-color, #363d50);
+  opacity: 0.72;
+  mask: url("data:image/svg+xml;utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 80 612 262'%3E%3Cpath fill='%23000' d='M301.7 82.3L77 208.9Q72.1 211.1 77 213.3L301.7 339.9Q305.7 342.1 309.7 339.9L535 213.3Q539.9 211.1 535 208.9L309.7 82.3Q305.7 80.1 301.7 82.3Z'/%3E%3C/svg%3E") no-repeat center / contain;
+  -webkit-mask: url("data:image/svg+xml;utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 80 612 262'%3E%3Cpath fill='%23000' d='M301.7 82.3L77 208.9Q72.1 211.1 77 213.3L301.7 339.9Q305.7 342.1 309.7 339.9L535 213.3Q539.9 211.1 535 208.9L309.7 82.3Q305.7 80.1 301.7 82.3Z'/%3E%3C/svg%3E") no-repeat center / contain;
+  filter: drop-shadow(0 0 1px color-mix(in srgb, #c5cbd7 90%, var(--tetromino-theme-color, #0c0d10)));
+}

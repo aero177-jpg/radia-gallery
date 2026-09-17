@@ -7,6 +7,16 @@
   "display": "standalone",
   "display_override": ["standalone", "fullscreen"],
   "background_color": "#0c0d10",
+  "theme_color": "#0c0d10",
+  "file_handlers": [
+    {
+      "action": "./",
+      "accept": {
+        "application/octet-stream": [".ply", ".sog"]
+      },
+      "launch_type": "single-client"
+    }
+  ],
   "icons": [
     {
       "sizes": "192x192",

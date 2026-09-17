@@ -6,6 +6,8 @@
 
 import { scene, THREE } from "./viewer.js";
 import { getFormatHandler } from "./formats/index.js";
+import { useStore } from "./store.js";
+import { DEFAULT_AUTO_ORBIT_SETTINGS, getAutoOrbitParameters, normalizeAutoOrbitSettings } from './autoOrbitConfig.js';
 
 let splatGroup = null;
 const cache = new Map();
@@ -68,7 +70,9 @@ const ensureAssetFile = async (asset) => {
   throw new Error("Asset has no file and no source");
 };
 
-const createEntry = async (asset) => {
+const createEntry = async (asset, { onProgress } = {}) => {
+  onProgress?.({ stage: 'file', message: 'Opening splat file...' });
+
   // Get file - may need to load from storage source
   const file = await ensureAssetFile(asset);
   if (!file) {
@@ -87,13 +91,27 @@ const createEntry = async (asset) => {
     throw err;
   }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  const useNativeStream = typeof file.openStream === 'function';
+  let bytes = null;
+  let stream = null;
+
+  if (useNativeStream) {
+    onProgress?.({ stage: 'file', message: 'Streaming splat file...', loaded: 0, total: file.size });
+    stream = await file.openStream();
+  } else {
+    onProgress?.({ stage: 'file', message: 'Reading splat file...', loaded: 0, total: file.size });
+    bytes = new Uint8Array(await file.arrayBuffer());
+    onProgress?.({ stage: 'file', message: 'Splat file ready', loaded: file.size, total: file.size });
+  }
 
   let cameraMetadata = null;
-  try {
-    cameraMetadata = await formatHandler.loadMetadata({ file, bytes });
-  } catch (err) {
-    console.warn(`[SplatManager] Failed to parse metadata for ${asset.name}:`, err);
+  if (bytes) {
+    try {
+      onProgress?.({ stage: 'metadata', message: 'Reading scene metadata...' });
+      cameraMetadata = await formatHandler.loadMetadata({ file, bytes });
+    } catch (err) {
+      console.warn(`[SplatManager] Failed to parse metadata for ${asset.name}:`, err);
+    }
   }
 
   // Try to load metadata from storage source
@@ -113,7 +131,43 @@ const createEntry = async (asset) => {
     }
   }
 
-  const mesh = await formatHandler.loadData({ file, bytes });
+  const store = useStore.getState();
+  const isMlSharpSplat = Boolean(cameraMetadata?.intrinsics);
+  if (isMlSharpSplat && store.debugRuntimeLodEnabled) {
+    store.setDebugRuntimeLodEnabled(false);
+    store.addLog('Runtime LoD disabled for ML-Sharp splat');
+  }
+  const runtimeLodEnabled = Boolean(store.debugRuntimeLodEnabled);
+  const loadStartedAt = performance.now();
+  if (runtimeLodEnabled) {
+    store.setStatus("Building runtime LoD tree...");
+  }
+
+  onProgress?.({ stage: 'spark', message: runtimeLodEnabled ? 'Building runtime LoD tree...' : 'Preparing splats...' });
+  const mesh = await formatHandler.loadData({
+    file,
+    bytes,
+    stream,
+    streamLength: useNativeStream ? file.size : undefined,
+    runtimeLodEnabled,
+    onProgress: (event) => {
+      onProgress?.({
+        stage: 'spark',
+        message: runtimeLodEnabled ? 'Building runtime LoD tree...' : 'Preparing splats...',
+        loaded: Number.isFinite(event?.loaded) ? event.loaded : undefined,
+        total: Number.isFinite(event?.total) && event.total > 0 ? event.total : undefined,
+      });
+    },
+  });
+  onProgress?.({ stage: 'renderer', message: 'Configuring scene...' });
+  mesh.maxSh = store.debugSplatShLevel;
+  mesh.updateGenerator?.();
+
+  if (runtimeLodEnabled) {
+    const elapsedSeconds = ((performance.now() - loadStartedAt) / 1000).toFixed(1);
+    store.setStatus("Finalizing LoD scene...");
+    store.addLog(`Runtime LoD ready in ${elapsedSeconds}s`);
+  }
   mesh.visible = false;
   mesh.userData.assetId = getCacheKey(asset);
   ensureGroup().add(mesh);
@@ -142,6 +196,9 @@ const createEntry = async (asset) => {
     if (sourceMetadata.customAnimation && !storedSettings.customAnimation) {
       storedSettings.customAnimation = sourceMetadata.customAnimation;
     }
+    if (sourceMetadata.autoOrbit && !storedSettings.autoOrbit) {
+      storedSettings.autoOrbit = sourceMetadata.autoOrbit;
+    }
     if (typeof sourceMetadata.annotation === 'string' && storedSettings.annotation === undefined) {
       storedSettings.annotation = sourceMetadata.annotation;
     }
@@ -167,13 +224,13 @@ export const isSplatCached = (asset) => {
   return cache.has(cacheKey);
 };
 
-export const ensureSplatEntry = async (asset) => {
+export const ensureSplatEntry = async (asset, options = {}) => {
   const cacheKey = getCacheKey(asset);
   if (!cacheKey) return null;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   if (loading.has(cacheKey)) return loading.get(cacheKey);
 
-  const promise = createEntry(asset)
+  const promise = createEntry(asset, options)
     .then((entry) => {
       cache.set(cacheKey, entry);
       loading.delete(cacheKey);
@@ -226,9 +283,44 @@ export const clearCustomAnimationInCache = (assetId) => {
   if (!assetId || !cache.has(assetId)) return;
   const entry = cache.get(assetId);
   if (!entry) return;
+  const legacyAutoOrbit = entry.storedSettings?.customAnimation?.autoOrbit;
   if (entry.storedSettings && entry.storedSettings.customAnimation !== undefined) {
     delete entry.storedSettings.customAnimation;
   }
+  if (legacyAutoOrbit && !entry.storedSettings.autoOrbit) {
+    entry.storedSettings.autoOrbit = normalizeAutoOrbitSettings(legacyAutoOrbit);
+  }
+};
+
+export const updateAutoOrbitInCache = (assetId, settings) => {
+  if (!assetId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  const current = entry.storedSettings.autoOrbit
+    || entry.storedSettings.customAnimation?.autoOrbit
+    || DEFAULT_AUTO_ORBIT_SETTINGS;
+  entry.storedSettings.autoOrbit = normalizeAutoOrbitSettings({
+    ...current,
+    ...(settings || {}),
+  });
+};
+
+export const updateViewAutoOrbitInCache = (assetId, viewId, settings) => {
+  if (!assetId || !viewId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  if (!entry.storedSettings.viewCustomAnimations) {
+    entry.storedSettings.viewCustomAnimations = {};
+  }
+
+  const previousViewSettings = entry.storedSettings.viewCustomAnimations[viewId] || {};
+  const current = previousViewSettings.autoOrbit || DEFAULT_AUTO_ORBIT_SETTINGS;
+  entry.storedSettings.viewCustomAnimations[viewId] = {
+    ...previousViewSettings,
+    autoOrbit: getAutoOrbitParameters({ ...current, ...(settings || {}) }),
+  };
 };
 
 export const updateViewCustomAnimationInCache = (assetId, viewId, customAnimation) => {
@@ -251,7 +343,14 @@ export const clearViewCustomAnimationInCache = (assetId, viewId) => {
   if (!assetId || !viewId || !cache.has(assetId)) return;
   const entry = cache.get(assetId);
   if (!entry?.storedSettings?.viewCustomAnimations) return;
-  delete entry.storedSettings.viewCustomAnimations[viewId];
+  const previousViewSettings = entry.storedSettings.viewCustomAnimations[viewId];
+  if (previousViewSettings?.autoOrbit) {
+    entry.storedSettings.viewCustomAnimations[viewId] = {
+      autoOrbit: previousViewSettings.autoOrbit,
+    };
+  } else {
+    delete entry.storedSettings.viewCustomAnimations[viewId];
+  }
 };
 
 export const updateAnnotationInCache = (assetId, annotation) => {
@@ -270,6 +369,85 @@ const clearAnnotationInCache = (assetId) => {
   if (!entry) return;
   if (entry.storedSettings && entry.storedSettings.annotation !== undefined) {
     delete entry.storedSettings.annotation;
+  }
+};
+
+// ---- Custom VR View cache helpers ----
+
+export const updateCustomVrViewInCache = (assetId, customVrView) => {
+  if (!assetId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  entry.storedSettings.customVrView = {
+    ...(entry.storedSettings.customVrView || {}),
+    ...(customVrView || {}),
+  };
+};
+
+export const clearCustomVrViewInCache = (assetId) => {
+  if (!assetId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry?.storedSettings?.customVrView) return;
+  delete entry.storedSettings.customVrView;
+};
+
+export const updateViewCustomVrViewInCache = (assetId, viewId, customVrView) => {
+  if (!assetId || !viewId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  if (!entry.storedSettings.viewCustomVrViews) entry.storedSettings.viewCustomVrViews = {};
+  if (customVrView && Object.keys(customVrView).length > 0) {
+    entry.storedSettings.viewCustomVrViews[viewId] = {
+      ...(entry.storedSettings.viewCustomVrViews[viewId] || {}),
+      ...customVrView,
+    };
+  } else {
+    delete entry.storedSettings.viewCustomVrViews[viewId];
+  }
+};
+
+export const clearViewCustomVrViewInCache = (assetId, viewId) => {
+  if (!assetId || !viewId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry?.storedSettings?.viewCustomVrViews) return;
+  delete entry.storedSettings.viewCustomVrViews[viewId];
+};
+
+export const updateVrNearClipInCache = (assetId, vrNearClip) => {
+  if (!assetId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  if (Number.isFinite(vrNearClip)) {
+    entry.storedSettings.vrNearClip = vrNearClip;
+  } else {
+    delete entry.storedSettings.vrNearClip;
+  }
+};
+
+export const updateVrFarClipInCache = (assetId, vrFarClip) => {
+  if (!assetId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  if (Number.isFinite(vrFarClip)) {
+    entry.storedSettings.vrFarClip = vrFarClip;
+  } else {
+    delete entry.storedSettings.vrFarClip;
+  }
+};
+
+export const updateVrPivotLocalPointInCache = (assetId, vrPivotLocalPoint) => {
+  if (!assetId || !cache.has(assetId)) return;
+  const entry = cache.get(assetId);
+  if (!entry) return;
+  if (!entry.storedSettings) entry.storedSettings = {};
+  if (Array.isArray(vrPivotLocalPoint) && vrPivotLocalPoint.length === 3) {
+    entry.storedSettings.vrPivotLocalPoint = [...vrPivotLocalPoint];
+  } else {
+    delete entry.storedSettings.vrPivotLocalPoint;
   }
 };
 

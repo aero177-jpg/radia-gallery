@@ -33,12 +33,13 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
     'settings.main-settings',
     'settings.additional-settings',
   ];
-  const controlsKeys = ['controls.desktop', 'controls.mobile'];
+  const controlsKeys = ['controls.desktop', 'controls.mobile', 'controls.vr'];
   const connectionsKeys = ['connections.storage', 'connections.cloud-gpu'];
-  const sharingKeys = ['sharing.transfer-bundles'];
+  const sharingKeys = ['sharing.transfer-bundles', 'sharing.embed-links'];
   const troubleshootingKeys = [
     'troubleshooting.render',
     'troubleshooting.collections',
+    'troubleshooting.vr',
   ];
 
   const isGettingStartedOpen = isAnyOpen(gettingStartedKeys);
@@ -98,7 +99,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Settings" isOpen={isSettingsOpen}>
             <Section title="Main Settings" isOpen={isSubsectionOpen('settings.main-settings')}>
               <ul>
-                <li><strong>Quality:</strong> Adjusts model density. Experimental is a last resort option, not recommended. Further adjustments can be made in advanced settings.</li>
+                <li><strong>Quality:</strong> Adjusts model density. Further adjustments can be made in advanced settings.</li>
                 <li><strong>Orbit range:</strong> ml-sharp splats degrade at greater angles, this mitigates this and keeps focus on the target view. Auto adjusts in immersive mode on mobile. Disabled for models missing ml-sharp metadata.</li>
                 <li><strong>FOV:</strong> Auto adjust depending on camera metadata. Click the eye symbol to add a slider to the viewer for a dolly-zoom effect.</li>
                 <li><strong>Recenter:</strong> Bring camera back to starting point. Hold to reset viewer, for example due to render glitch.</li>
@@ -110,6 +111,7 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
               <ul>
                 <li><strong>Custom Camera:</strong> This viewer auto sets the camera for optimal viewing of ml-sharp splats (with metadata). For others, manually adjust: scale to fill, rotate, double click, and zoom to frame intended view. You can add additional views on the same model, click "edit custom camera", adjust camera, and save as new view.</li>
                 <li><strong>Tilt Sensitivity:</strong> Adjusts how device rotation effects view in immersive mode.</li>
+                <li><strong>VR toggle:</strong> Appears if an HMD is detected.</li>
                 <li><strong>SBS separation:</strong> Appears if sbs enabled in advanced settings (experimental). Effects stereo depth perceived. Click focus icon for auto adjust.</li>
                 <li><strong>SBS stereo aspect:</strong> Manual aspect ratio adjustment to match display.</li>
               </ul>
@@ -121,13 +123,13 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
           <Section title="Controls" isOpen={isControlsOpen}>
             <Section title="Desktop" isOpen={isSubsectionOpen('controls.desktop')}>
               <ul>
-                <li><strong>WASD QE:</strong> Navigate non ML-Sharp scenes. + <strong>shift</strong> to move faster.</li>
+                <li><strong>WASD QE:</strong> Navigate non ML-Sharp scenes. W/S track forward/back parallel to the grid. Hold <strong>Space</strong> to lock the camera: A/D orbit horizontally, Q/E orbit vertically, and W/S move forward/back in the view direction. With Free look enabled, Space + A/D/Q/E rotates in place. + <strong>shift</strong> to move faster.</li>
                 <li><strong>Double click:</strong> Zoom/orbit around point (hit refresh to clear).</li>
-                <li><strong>Click-drag:</strong> Orbit.</li>
+                <li><strong>Click-drag:</strong> Orbit, or rotate in place with Free look enabled.</li>
                 <li><strong>Right click-drag:</strong> Pan.</li>
                 <li><strong>Scroll:</strong> Zoom.</li>
                 <li><strong>Click:</strong> Interact with controls and viewer.</li>
-                <li><strong>Spacebar:</strong> Play / pause slideshow.</li>
+                <li><strong>Spacebar:</strong> Tap to play / pause slideshow; hold for camera lock.</li>
                 <li><strong>Tap:</strong> Pause slideshow, toggle UI.</li>
                 <li><strong>R key:</strong> Reset camera, or click focus icon in viewer.</li>
                 <li><strong>F11:</strong> Opens normal browser fullscreen. You can also use the fullscreen button in the viewer controls.</li>
@@ -142,6 +144,24 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li>Swipe left or right in the lower part of the viewer (area with arrows) to advance models.</li>
                 <li><strong>Tap:</strong> Pause slideshow, toggle UI.</li>
                 <li><strong>Immersive mode:</strong> Only tested on Android. Toggle with the “3d rotate” icon in the viewer. Drag to pan while moving the device to orbit. Click the focus icon to fix device sensor drift or set the current device angle as centered.</li>
+              </ul>
+            </Section>
+
+            <Section title="VR" isOpen={isSubsectionOpen('controls.vr')}>
+               <p className='controls-modal__subtitle'>VR mode is a bit experimental. In this mode, the model itself is being rotated, rather than you moving around the model.         <br />
+              <br />   Splats that were not generated with ml-sharp may not align to view on first viewing, But poses can be saved, including rotation and scale. One VR pose can be set per model custom viewpoint. 
+            </p>
+              <ul>
+                <li><strong>Right trigger near model:</strong> Grab and directly move the model with the right controller.</li>
+                <li><strong>Right trigger + left trigger:</strong> Grab model, then use left trigger to lock a rotation axis.</li>
+                <li><strong>Right stick:</strong> Pan the model left/right and up/down.</li>
+                <li><strong>Right trigger + right stick up/down while grabbing:</strong> Smoothly scale the model larger or smaller.</li>
+                <li><strong>Left stick:</strong> Rotate the model horizontally or vertically.</li>
+                <li><strong>Left trigger + left stick up/down:</strong> Push or pull the model forward and backward in depth.</li>
+                <li><strong>Left X / Y:</strong> Step scale down or up.</li>
+                <li><strong>Left stick click:</strong> Reset model rotation.</li>
+                <li><strong>Right stick click:</strong> Reset the VR view and model transform.</li>
+                <li><strong>Right A / B:</strong> Previous or next model.</li>
               </ul>
             </Section>
             <div class="controls-section-divider" />
@@ -209,6 +229,14 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
                 <li><strong>Shareable config links:</strong> After uploading an exported JSON or ZIP to a public direct URL, use the generated config URL in the transfer dialog. That link adds your import URL to the viewer, so the recipient can open the app and import the shared setup from that hosted file.</li>
               </ul>
             </Section>
+
+            <Section title="Embeddable link generator" isOpen={isSubsectionOpen('sharing.embed-links')}>
+              <ul>
+                <li><strong>What it does:</strong> The embed generator creates a read-only, stripped-down version of the app for sharing a collection without the full editing and management UI.</li>
+                <li><strong>How it loads:</strong> The generated embed reads from a hosted JSON or ZIP config, so you can point it at the same exported transfer data you are sharing publicly.</li>
+                <li><strong>Best use:</strong> Use embeds when you want a cleaner viewer experience for websites, portfolios, or simple sharing, while keeping the full app available separately for editing and imports.</li>
+              </ul>
+            </Section>
             <div class="controls-section-divider" />
 
           </Section>
@@ -227,6 +255,12 @@ function ControlsModal({ isOpen, onClose, defaultOpenSubsections = [] }) {
             <Section title="Collections" isOpen={isSubsectionOpen('troubleshooting.collections')}>
               <ul>
                 <li><strong>Files not appearing:</strong> If using a connected cloud storage, make sure you have the correct permissions set up. For Supabase, you can set up a policy with "select" permissions for the relevant table. For R2, make sure your access key and secret key are correct, and be sure to add a CORS policy under "settings".</li>
+              </ul>
+            </Section>
+
+            <Section title="VR" isOpen={isSubsectionOpen('troubleshooting.vr')}>
+              <ul>
+                <li><strong>VR view misaligned:</strong> If your scenes have multiple custom camera poses, but you notice that the VR view doesn't align correctly with the model, this is likely due to a known issue with how we handle multiple custom views. As a workaround, you can switch to the desired custom camera pose, and then save a new VR view. This will capture the correct alignment for that pose. You can then switch between your saved VR view and custom camera poses as needed.</li> 
               </ul>
             </Section>
           </Section>

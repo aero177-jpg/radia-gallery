@@ -6,6 +6,8 @@
 
 import { getSupportedExtensions } from "./formats/index.js";
 import { useStore } from "./store.js";
+import { DEFAULT_AUTO_ORBIT_SETTINGS, normalizeAutoOrbitSettings } from './autoOrbitConfig.js';
+import { beginAutoOrbitTransition, cancelAutoOrbit, endAutoOrbitTransition, scheduleAutoOrbit } from './autoOrbit.js';
 import {
   scene,
   renderer,
@@ -60,6 +62,22 @@ export { updateViewerAspectRatio, resize } from "./layout.js";
 
 /** Navigation lock to prevent concurrent asset loads */
 let isNavigationLocked = false;
+
+/**
+ * Callback invoked when a same-base view instance is navigated during VR.
+ * Registered by vrMode on session start, cleared on session end.
+ * Receives the new asset so vrMode can apply saved VR transforms.
+ * @type {((asset: Object) => void) | null}
+ */
+let onVrViewInstanceNavigated = null;
+
+/**
+ * Register / clear the VR view-instance navigation callback.
+ * @param {((asset: Object) => void) | null} cb
+ */
+export const setVrViewInstanceCallback = (cb) => {
+  onVrViewInstanceNavigated = cb;
+};
 
 export const isNavigationLockedRef = () => isNavigationLocked;
 export const setNavigationLocked = (locked) => {
@@ -169,8 +187,10 @@ const DEFAULT_FILE_CUSTOM_ANIMATION = {
   transitionRange: 'default',
   zoomProfile: 'default',
   dollyZoom: false,
+  autoOrbit: normalizeAutoOrbitSettings(),
 };
 const DEFAULT_FILE_ANNOTATION = '';
+const LARGE_ASSET_PRELOAD_LIMIT_BYTES = 256 * 1024 * 1024;
 
 export const normalizeFileCustomAnimationSettings = (customAnimationSettings) => {
   const slideType = VALID_FILE_SLIDE_TYPES.has(customAnimationSettings?.slideType)
@@ -183,12 +203,14 @@ export const normalizeFileCustomAnimationSettings = (customAnimationSettings) =>
     ? customAnimationSettings.zoomProfile
     : 'default';
   const dollyZoom = customAnimationSettings?.dollyZoom === true;
+  const autoOrbit = normalizeAutoOrbitSettings(customAnimationSettings?.autoOrbit);
 
   return {
     slideType,
     transitionRange,
     zoomProfile,
     dollyZoom,
+    autoOrbit,
   };
 };
 
@@ -221,7 +243,8 @@ const resolveSlideAmountWithPerFileRange = (mode, preset, transitionRangeKey, ph
   return Number.isFinite(amount) ? amount : undefined;
 };
 
-const isFile = (value) => typeof File !== "undefined" && value instanceof File;
+const isFile = (value) => (typeof File !== "undefined" && value instanceof File)
+  || Boolean(value && typeof value.name === 'string' && typeof value.arrayBuffer === 'function');
 
 const makeAdHocAssetId = (file) =>
   `adhoc-${file?.name ?? "asset"}-${file?.size ?? 0}-${file?.lastModified ?? Date.now()}-${Math.random()
@@ -541,11 +564,74 @@ const resolveEffectiveCustomAnimation = (storedSettings, asset) => {
   return storedSettings?.customAnimation ?? null;
 };
 
-const syncStoredCustomAnimationSettings = (customAnimationSettings, store) => {
+const resolveEffectiveAutoOrbitSettings = (storedSettings, asset) => {
+  const viewId = asset?.viewId;
+  const viewAutoOrbit = viewId
+    ? storedSettings?.viewCustomAnimations?.[viewId]?.autoOrbit
+    : null;
+  const baseAutoOrbit = storedSettings?.autoOrbit
+    || storedSettings?.customAnimation?.autoOrbit
+    || viewAutoOrbit
+    || DEFAULT_AUTO_ORBIT_SETTINGS;
+  const normalizedBase = normalizeAutoOrbitSettings(baseAutoOrbit);
+
+  return normalizeAutoOrbitSettings({
+    ...normalizedBase,
+    ...(viewAutoOrbit || {}),
+    enabled: normalizedBase.enabled,
+  });
+};
+
+/**
+ * Resolves the effective custom VR view for an asset, checking per-view
+ * overrides first, then falling back to the base file's customVrView.
+ * @param {Object} storedSettings - The file's storedSettings from the splat cache
+ * @param {Object} asset - The current asset (may have a viewId for view instances)
+ * @returns {Object|null} {position, quaternion, vrModelScale} or null
+ */
+export const resolveEffectiveCustomVrView = (storedSettings, asset) => {
+  const viewId = asset?.viewId;
+  if (viewId && storedSettings?.viewCustomVrViews?.[viewId]) {
+    return storedSettings.viewCustomVrViews[viewId];
+  }
+  return storedSettings?.customVrView ?? null;
+};
+
+export const hasSavedVrViewForAsset = (asset) => {
+  if (!asset) return false;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache().get(cacheKey);
+  return Boolean(resolveEffectiveCustomVrView(entry?.storedSettings, asset));
+};
+
+export const hasSavedVrNearClipOverrideForAsset = (asset) => {
+  if (!asset) return false;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache().get(cacheKey);
+  return Number.isFinite(entry?.storedSettings?.vrNearClip);
+};
+
+export const hasSavedVrFarClipOverrideForAsset = (asset) => {
+  if (!asset) return false;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache().get(cacheKey);
+  return Number.isFinite(entry?.storedSettings?.vrFarClip);
+};
+
+export const hasSavedVrPivotOverrideForAsset = (asset) => {
+  if (!asset) return false;
+  const cacheKey = asset.cacheKey || getBaseAssetId(asset) || asset.id;
+  const entry = getSplatCache().get(cacheKey);
+  return Array.isArray(entry?.storedSettings?.vrPivotLocalPoint)
+    && entry.storedSettings.vrPivotLocalPoint.length === 3;
+};
+
+const syncStoredCustomAnimationSettings = (customAnimationSettings, store, autoOrbitSettings) => {
   const normalized = normalizeFileCustomAnimationSettings(customAnimationSettings);
   store.setFileCustomAnimation({
     ...DEFAULT_FILE_CUSTOM_ANIMATION,
     ...normalized,
+    autoOrbit: normalizeAutoOrbitSettings(autoOrbitSettings ?? normalized.autoOrbit),
   });
 };
 
@@ -554,17 +640,28 @@ const syncStoredAnnotation = (annotation, store) => {
   store.setAnnotation(typeof normalized === 'string' ? normalized : DEFAULT_FILE_ANNOTATION);
 };
 
-const refreshSparkForCurrentView = (reason = 'unspecified') => {
-  if (!spark?.update) return;
+const refreshSparkForCurrentView = async (reason = 'unspecified', { waitForIdle = false } = {}) => {
+  if (!spark?.update || !camera) return;
 
   camera?.updateMatrix?.();
   camera?.updateMatrixWorld?.(true);
 
-  const viewToWorld = camera?.matrixWorld?.clone?.();
-  if (viewToWorld) {
-    spark.update({ scene, viewToWorld });
-  } else {
-    spark.update({ scene });
+  const restoreAutoUpdate = waitForIdle ? spark.autoUpdate : null;
+  if (waitForIdle) {
+    spark.autoUpdate = false;
+  }
+
+  try {
+    while (waitForIdle && spark.sorting) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    await spark.update({ scene, camera });
+  } catch (error) {
+    console.warn(`[fileLoader] Spark update failed (${reason})`, error);
+  } finally {
+    if (waitForIdle) {
+      spark.autoUpdate = restoreAutoUpdate;
+    }
   }
 };
 
@@ -606,6 +703,8 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   if (!asset) return;
   const hasFileOrSource = asset.file || (asset.sourceId && asset._remoteAsset);
   if (!hasFileOrSource) return;
+
+  cancelAutoOrbit();
 
   // Stamp a generation so we can detect when a newer load has superseded this one
   const thisGeneration = ++loadGeneration;
@@ -649,8 +748,30 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     viewerEl.classList.add('slide-out');
   }
 
+  if (!wasAlreadyCached) {
+    viewerEl.classList.add("loading");
+    store.setIsLoading(true);
+    store.setStatus("Preparing splat...");
+  }
+
+  let lastProgressAt = 0;
+  let lastProgressStage = null;
+
   // Preload entry early (reused later to avoid duplicate loads)
-  const entryPromise = ensureSplatEntry(asset);
+  const entryPromise = ensureSplatEntry(asset, {
+    onProgress: (progress) => {
+      if (loadGeneration !== thisGeneration) return;
+
+      const now = performance.now();
+      const stageChanged = progress.stage !== lastProgressStage;
+      const completed = Number.isFinite(progress.total) && progress.total > 0 && progress.loaded >= progress.total;
+      if (!stageChanged && !completed && now - lastProgressAt < 100) return;
+
+      lastProgressAt = now;
+      lastProgressStage = progress.stage;
+      store.setLoadingProgress(progress);
+    },
+  });
   let aspectApplied = false;
   
   // For transitions (slides or random asset clicks), start fade/slide-out and entry prep in parallel
@@ -717,6 +838,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
   }
   
   store.setFileInfo({ name: asset.name });
+  cancelAutoOrbit();
 
   const wasImmersiveModeActive = immersiveActive;
   if (wasImmersiveModeActive) {
@@ -733,13 +855,6 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       if (pageEl) {
         pageEl.classList.remove("has-glow");
       }
-    }
-
-    // Only show loading overlay for non-cached loads
-    if (!wasAlreadyCached) {
-      viewerEl.classList.add("loading");
-      store.setIsLoading(true);
-      store.setStatus("Preparing splat...");
     }
 
     const assetList = getAssetList();
@@ -777,7 +892,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
           const cache = getSplatCache();
           cache.forEach((cached, id) => {
-            cached.mesh.visible = id === activeCacheKey;
+            cached.mesh.visible = id === activeCacheKey && !store.vrSessionActive;
           });
           requestRender();
         }
@@ -806,7 +921,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
 
       const cache = getSplatCache();
       cache.forEach((cached, id) => {
-        cached.mesh.visible = id === activeCacheKey;
+        cached.mesh.visible = id === activeCacheKey && !store.vrSessionActive;
       });
       requestRender(); // Immediately render the new mesh
     }
@@ -820,25 +935,31 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       commitSlideshowTransition(slideshowTransitionId, { phase: 'asset-activated' });
     }
     viewerEl.classList.add("has-mesh");
-    spark?.update?.({ scene });
+    if (!shouldRunTransition) {
+      refreshSparkForCurrentView('asset activation');
+    }
 
-    // Fire-and-forget neighbor preloading (don't block current asset)
-    const neighborIds = new Set(neighborAssets.map((neighbor) => neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id));
+    // Do not decode neighboring multi-hundred-megabyte splats alongside the active one.
+    const isNativeDesktopFile = typeof asset.file?.openStream === 'function';
+    const shouldPreloadNeighbors = !isNativeDesktopFile
+      || (asset.file?.size ?? asset.size ?? 0) <= LARGE_ASSET_PRELOAD_LIMIT_BYTES;
+    const retainedAssets = shouldPreloadNeighbors ? neighborAssets : [asset];
+    const neighborIds = new Set(retainedAssets.map((neighbor) => neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id));
     retainOnlySplats(neighborIds);
     
     // Preload neighbors in background without awaiting
-    neighborAssets
+    if (shouldPreloadNeighbors) neighborAssets
       .filter((neighbor) => (neighbor.cacheKey || getBaseAssetId(neighbor) || neighbor.id) !== activeCacheKey)
       .forEach((neighbor) => {
         ensureSplatEntry(neighbor)
-          .then(() => spark?.update?.({ scene }))
+          .then(() => refreshSparkForCurrentView('neighbor preload'))
           .catch((err) => {
             console.warn(`[SplatManager] Failed to preload ${neighbor.name}:`, err);
           });
       });
 
     const { cameraMetadata, storedSettings, focusDistanceOverride, formatLabel } = entry;
-    const { views: customViews, selectedView } = await resolveAssetView(asset);
+    const { metadata: customMetadata, views: customViews, selectedView } = await resolveAssetView(asset);
 
     // Bail out if a newer load superseded this one while resolving views
     if (loadGeneration !== thisGeneration) return;
@@ -859,18 +980,24 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     const modelOverrides = {
       applyCoordinateFlip: shouldApplyFlip,
       modelScale: selectedView?.model?.modelScale ?? 1,
+      baseOrientation: selectedView?.model?.baseOrientation,
+      modelRotation: selectedView?.model?.modelRotation,
     };
 
     if (shouldApplyFlip || hasCustomMetadata) {
       applyCustomModelTransform(entry.mesh, modelOverrides);
-      // Force Spark to regenerate its splat accumulator so the updated
-      // mesh transform (flip + scale) is baked into the packed data.
-      if (spark) spark.needsUpdate = true;
+      if (!shouldRunTransition) {
+        refreshSparkForCurrentView('model transform');
+      }
     }
 
     store.setCustomModelScale(modelOverrides.modelScale);
+    store.setCustomBaseOrientation(modelOverrides.baseOrientation ?? 'y-down');
+    store.setCustomModelRotation(modelOverrides.modelRotation ?? { x: 0, y: 0, z: 0 });
 
     const metadataMissing = !cameraMetadata?.intrinsics && customViews.length === 0;
+    store.setIsCustomModel(!cameraMetadata?.intrinsics);
+    store.setCameraMovementSpeed(customMetadata?.cameraMovementSpeed ?? 'default');
     store.setMetadataMissing(metadataMissing);
     store.setCustomMetadataAvailable(customViews.length > 0);
     // Only change controls visibility when opening (metadata missing) or when
@@ -919,6 +1046,7 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     syncStoredCustomAnimationSettings(
       effectiveCustomAnimation,
       store,
+      resolveEffectiveAutoOrbitSettings(storedSettings, asset),
     );
     syncStoredAnnotation(
       storedSettings?.annotation,
@@ -1010,6 +1138,11 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       if (hasCustomMetadata && !cameraMetadata?.intrinsics) {
         refreshSparkForCurrentView('post-camera-cached-custom-view');
         forceViewInstancePostPoseRenderReflow('post-camera-cached-custom-view');
+      }
+
+      if (shouldRunTransition) {
+        await refreshSparkForCurrentView('transition-ready-cached', { waitForIdle: true });
+        if (loadGeneration !== thisGeneration) return;
       }
       
       // Apply background BEFORE slideIn so it fades in sync with canvas
@@ -1104,12 +1237,14 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       // Bail out if a newer load superseded this one during the camera animation
       if (loadGeneration !== thisGeneration) return;
 
-      // Bail out if a newer load superseded this one during the camera animation
-      if (loadGeneration !== thisGeneration) return;
-
       if (hasCustomMetadata && !cameraMetadata?.intrinsics) {
         refreshSparkForCurrentView('post-camera-custom-view');
         forceViewInstancePostPoseRenderReflow('post-camera-custom-view');
+      }
+
+      if (shouldRunTransition) {
+        await refreshSparkForCurrentView('transition-ready', { waitForIdle: true });
+        if (loadGeneration !== thisGeneration) return;
       }
       
       // Apply background BEFORE slideIn so it fades in sync with canvas
@@ -1226,9 +1361,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         requestAnimationFrame(warmup);
 
         if (!bgCaptured && warmupFrames === BG_CAPTURE_FRAME && !skipBgGeneration) {
-          // Skip background capture while stereo mode is active.
+          // Also skip background capture in VR/stereo mode
           const bgStoreState = getStoreState();
-          const isDistortedBg = bgStoreState.stereoEnabled;
+          const isDistortedBg = bgStoreState.stereoEnabled || bgStoreState.vrSessionActive;
           const backgroundMatchesPreview = hasBackgroundForPreview(asset.preview);
           if (!isDistortedBg && !backgroundMatchesPreview) {
             bgCaptured = true;
@@ -1240,9 +1375,9 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
         if (!previewCaptured && warmupFrames === previewFrame) {
           previewCaptured = true;
           
-          // Skip preview capture while stereo mode is active (would produce distorted preview)
+          // Skip preview capture if VR or stereo mode is active (would produce distorted preview)
           const currentStoreState = getStoreState();
-          const isDistortedMode = currentStoreState.stereoEnabled;
+          const isDistortedMode = currentStoreState.stereoEnabled || currentStoreState.vrSessionActive;
           const shouldGeneratePreview = !isDistortedMode && (!asset.preview || asset.previewSource === 'image');
 
           if (shouldGeneratePreview) {
@@ -1298,10 +1433,12 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     if (wasAlreadyCached) {
       viewerEl.classList.remove("loading");
       store.setIsLoading(false);
+      scheduleAutoOrbit();
     } else {
       requestAnimationFrame(() => {
         viewerEl.classList.remove("loading");
         store.setIsLoading(false);
+        scheduleAutoOrbit();
       });
     }
 
@@ -1309,6 +1446,18 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     const loadedMessage = cameraMetadata
       ? `Loaded ${formatName}`
       : `Loaded ${formatName} (no camera data)`;
+
+    if (store.vrSessionActive && onVrViewInstanceNavigated) {
+      onVrViewInstanceNavigated(asset);
+    }
+
+    if (store.vrSessionActive) {
+      const cache = getSplatCache();
+      cache.forEach((cached, id) => {
+        cached.mesh.visible = id === activeCacheKey;
+      });
+      requestRender();
+    }
 
     store.setStatus(loadedMessage);
     store.addLog(
@@ -1498,7 +1647,7 @@ export const handleMultipleFiles = async (files) => {
   resetSplatManager();
   setCurrentMesh(null);
   hasLoadedFirstAsset = false; // Reset first load flag for new asset list
-  spark?.update?.({ scene });
+  refreshSparkForCurrentView('asset list reset');
 
   // Update store with assets
   store.setAssets(result.assets);
@@ -1648,11 +1797,50 @@ const forceViewInstancePostPoseRenderReflow = (label = 'view-instance') => {
 const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   if (!asset || !currentMesh) return false;
 
-  const store = getStoreState();
-  const { selectedView, views } = await resolveAssetView(asset);
-  if (!selectedView?.cameraPose) return false;
+  beginAutoOrbitTransition();
+
+  try {
+    const store = getStoreState();
+    const { selectedView, views } = await resolveAssetView(asset);
+    if (!selectedView?.cameraPose) return false;
 
   await syncAssetViewInstances({ store, currentAsset: asset, views });
+
+  // ── VR fast-path: skip camera animations, resize, aspect ratio changes ──
+  // In VR the model is manipulated directly, not the camera.
+  if (store.vrSessionActive) {
+    applyCustomModelTransform(currentMesh, {
+      applyCoordinateFlip: true,
+      modelScale: selectedView?.model?.modelScale ?? 1,
+      baseOrientation: selectedView?.model?.baseOrientation,
+      modelRotation: selectedView?.model?.modelRotation,
+    });
+    store.setCustomModelScale(selectedView?.model?.modelScale ?? 1);
+    store.setCustomBaseOrientation(selectedView?.model?.baseOrientation ?? 'y-down');
+    store.setCustomModelRotation(selectedView?.model?.modelRotation ?? { x: 0, y: 0, z: 0 });
+    // Sync per-view store state
+    const activeCacheKeyForView = asset.cacheKey || getBaseAssetId(asset);
+    const cacheEntryForView = getSplatCache().get(activeCacheKeyForView);
+    if (cacheEntryForView) {
+      const viewCustomAnimation = resolveEffectiveCustomAnimation(cacheEntryForView.storedSettings, asset);
+      syncStoredCustomAnimationSettings(
+        viewCustomAnimation,
+        store,
+        resolveEffectiveAutoOrbitSettings(cacheEntryForView.storedSettings, asset),
+      );
+    }
+    store.setMetadataMissing(false);
+    store.setCustomMetadataAvailable(true);
+    store.setFileInfo({
+      name: getBaseAssetName(asset),
+      size: formatBytes(asset.file?.size ?? asset.size),
+    });
+    store.setStatus(`Loaded ${getBaseAssetName(asset)} view`);
+    // Notify vrMode so it can apply saved VR model transforms
+    if (onVrViewInstanceNavigated) onVrViewInstanceNavigated(asset);
+    requestRender();
+    return true;
+  }
 
   // Cancel any in-flight slide / continuous animations and stale handoffs
   cleanupSlideTransitionState();
@@ -1666,8 +1854,12 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   applyCustomModelTransform(currentMesh, {
     applyCoordinateFlip: true,
     modelScale: selectedView?.model?.modelScale ?? 1,
+    baseOrientation: selectedView?.model?.baseOrientation,
+    modelRotation: selectedView?.model?.modelRotation,
   });
   store.setCustomModelScale(selectedView?.model?.modelScale ?? 1);
+  store.setCustomBaseOrientation(selectedView?.model?.baseOrientation ?? 'y-down');
+  store.setCustomModelRotation(selectedView?.model?.modelRotation ?? { x: 0, y: 0, z: 0 });
 
   // Apply aspect ratio instantly – bypass the CSS transition so the viewer
   // snaps to the new size rather than animating width/height.
@@ -1714,7 +1906,11 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   const cacheEntryForView = getSplatCache().get(activeCacheKeyForView);
   if (cacheEntryForView) {
     const viewCustomAnimation = resolveEffectiveCustomAnimation(cacheEntryForView.storedSettings, asset);
-    syncStoredCustomAnimationSettings(viewCustomAnimation, store);
+    syncStoredCustomAnimationSettings(
+      viewCustomAnimation,
+      store,
+      resolveEffectiveAutoOrbitSettings(cacheEntryForView.storedSettings, asset),
+    );
   }
 
   store.setMetadataMissing(false);
@@ -1730,6 +1926,9 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
   store.setStatus(`Loaded ${getBaseAssetName(asset)} view`);
   requestRender();
   return true;
+  } finally {
+    endAutoOrbitTransition();
+  }
 };
 
 /**
@@ -1743,15 +1942,19 @@ const navigateWithinLoadedBaseAsset = async (asset, options = {}) => {
  * @returns {Promise<Object|null>} handoff payload or null if view can't be resolved
  */
 export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = {}) => {
+  cancelAutoOrbit();
+
   const { selectedView, views } = await resolveAssetView(asset);
   if (!selectedView?.cameraPose) return null;
 
   const store = getStoreState();
   let nextAssetCustomAnimation = null;
+  let nextAssetAutoOrbit = null;
   let nextAssetAnnotation = null;
   try {
     const entry = await ensureSplatEntry(asset);
     nextAssetCustomAnimation = resolveEffectiveCustomAnimation(entry?.storedSettings, asset);
+    nextAssetAutoOrbit = resolveEffectiveAutoOrbitSettings(entry?.storedSettings, asset);
     nextAssetAnnotation = entry?.storedSettings?.annotation ?? null;
   } catch (err) {
     console.warn('[FileLoader] Failed to pre-resolve custom animation for handoff', err);
@@ -1779,7 +1982,7 @@ export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = 
     onApply: () => {
       const applyStore = getStoreState();
 
-      syncStoredCustomAnimationSettings(nextAssetCustomAnimation, applyStore);
+      syncStoredCustomAnimationSettings(nextAssetCustomAnimation, applyStore, nextAssetAutoOrbit);
       syncStoredAnnotation(nextAssetAnnotation, applyStore);
 
       // Model transform
@@ -1787,9 +1990,13 @@ export const buildContinuousHandoff = async (asset, { slideMode: _slideMode } = 
         applyCustomModelTransform(currentMesh, {
           applyCoordinateFlip: true,
           modelScale: selectedView?.model?.modelScale ?? 1,
+          baseOrientation: selectedView?.model?.baseOrientation,
+          modelRotation: selectedView?.model?.modelRotation,
         });
       }
       applyStore.setCustomModelScale(selectedView?.model?.modelScale ?? 1);
+      applyStore.setCustomBaseOrientation(selectedView?.model?.baseOrientation ?? 'y-down');
+      applyStore.setCustomModelRotation(selectedView?.model?.modelRotation ?? { x: 0, y: 0, z: 0 });
 
       // Aspect ratio – instant, no CSS transition
       const customAspectRatio = selectedView?.view?.aspectRatio ?? null;
@@ -1979,7 +2186,7 @@ export const loadFromStorageSource = async (source, options = {}) => {
       resetSplatManager();
       setCurrentMesh(null);
       hasLoadedFirstAsset = false;
-      spark?.update?.({ scene });
+      refreshSparkForCurrentView('empty source reset');
       clearBackground();
       const pageEl = document.querySelector(".page");
       if (pageEl) {
@@ -1992,7 +2199,7 @@ export const loadFromStorageSource = async (source, options = {}) => {
     resetSplatManager();
     setCurrentMesh(null);
     hasLoadedFirstAsset = false; // Reset first load flag for new source
-    spark?.update?.({ scene });
+    refreshSparkForCurrentView('source reset');
     
     // Clear background
     clearBackground();
@@ -2224,7 +2431,7 @@ export const loadPrevAsset = async (options = {}) => {
  * Reloads the current asset to force a clean render (e.g., after fullscreen).
  * Skips if navigation is already locked or no asset is selected.
  */
-export const reloadCurrentAsset = async () => {
+export const reloadCurrentAsset = async ({ rebuildSplatCache = false } = {}) => {
   if (isNavigationLocked) return;
 
   const index = getCurrentAssetIndex();
@@ -2241,6 +2448,11 @@ export const reloadCurrentAsset = async () => {
   }
 
   try {
+    if (rebuildSplatCache) {
+      useStore.getState().setStatus("Rebuilding scene with new performance settings...");
+      resetSplatManager();
+      setCurrentMesh(null);
+    }
     await loadSplatFile(asset);
   } finally {
     isNavigationLocked = false;
