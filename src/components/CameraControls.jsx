@@ -203,6 +203,8 @@ function CameraControls() {
   const setCameraRange = useStore((state) => state.setCameraRange);
   const cameraMovementSpeed = useStore((state) => state.cameraMovementSpeed);
   const setCameraMovementSpeed = useStore((state) => state.setCameraMovementSpeed);
+  const mobileJoystickEnabled = useStore((state) => state.mobileJoystickEnabled);
+  const setMobileJoystickEnabled = useStore((state) => state.setMobileJoystickEnabled);
   const isCustomModel = useStore((state) => state.isCustomModel);
   const addLog = useStore((state) => state.addLog);
   const cameraSettingsExpanded = useStore((state) => state.cameraSettingsExpanded);
@@ -1437,6 +1439,18 @@ function CameraControls() {
             )}
           </>
         )}
+
+        <div class="control-row animate-toggle-row">
+          <span class="control-label">Movement joystick</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={mobileJoystickEnabled}
+              onChange={(event) => setMobileJoystickEnabled(event.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
 
         {/* Eye separation slider - shown when stereo is enabled */}
         {stereoEnabled && (

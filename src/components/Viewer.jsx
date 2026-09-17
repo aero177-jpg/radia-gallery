@@ -39,6 +39,7 @@ import ViewerEmptyState from './ViewerEmptyState.jsx';
 import UploadStatusOverlay from './UploadStatusOverlay.jsx';
 import R2UnlockState from './R2UnlockState.jsx';
 import TetrominoLoader from './TetrominoLoader.jsx';
+import MobileJoystick from './MobileJoystick.jsx';
 
 
 /** Tags that should not trigger keyboard shortcuts */
@@ -98,6 +99,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const isMobile = useStore((state) => state.isMobile);
   const isPortrait = useStore((state) => state.isPortrait);
+  const mobileJoystickEnabled = useStore((state) => state.mobileJoystickEnabled);
   const expandedViewer = useStore((state) => state.expandedViewer);
   const transitionSpeed = useStore((state) => state.transitionSpeed);
   const setAnchorState = useStore((state) => state.setAnchorState);
@@ -1068,6 +1070,9 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
       </div>
       <div class="viewer-overlays">
         {dropOverlay}
+        {mobileJoystickEnabled && hasMesh && !panelOpen && !assetSidebarOpen && (
+          <MobileJoystick />
+        )}
         {(FORCE_TETROMINO_LOADER_PREVIEW || showSlowLoadingNotice) && <TetrominoLoader />}
         {requiresR2Unlock && (
           <R2UnlockState

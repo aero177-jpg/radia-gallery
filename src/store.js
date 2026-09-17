@@ -88,6 +88,7 @@ const DEFAULT_UI_PREFS = {
   appBgColor: '#0c0d10',
   bgBlur: 40,
   disableTransparentUi: false,
+  mobileJoystickEnabled: false,
   vrBaseHeight: 0,
   vrHorizontalOffset: 0,
   vrBaseZoom: 0,
@@ -129,6 +130,10 @@ const normalizeUiPrefs = (raw) => {
 
   if (typeof raw.disableTransparentUi === 'boolean') {
     prefs.disableTransparentUi = raw.disableTransparentUi;
+  }
+
+  if (typeof raw.mobileJoystickEnabled === 'boolean') {
+    prefs.mobileJoystickEnabled = raw.mobileJoystickEnabled;
   }
 
   if (Number.isFinite(raw.vrBaseHeight)) prefs.vrBaseHeight = raw.vrBaseHeight;
@@ -197,6 +202,11 @@ const persistUiPrefs = (state) => {
   if (typeof state.disableTransparentUi === 'boolean'
     && state.disableTransparentUi !== DEFAULT_UI_PREFS.disableTransparentUi) {
     prefs.disableTransparentUi = state.disableTransparentUi;
+  }
+
+  if (typeof state.mobileJoystickEnabled === 'boolean'
+    && state.mobileJoystickEnabled !== DEFAULT_UI_PREFS.mobileJoystickEnabled) {
+    prefs.mobileJoystickEnabled = state.mobileJoystickEnabled;
   }
 
   if (Number.isFinite(state.vrBaseHeight) && state.vrBaseHeight !== DEFAULT_UI_PREFS.vrBaseHeight) {
@@ -457,6 +467,7 @@ export const useStore = create(
   isPortrait: typeof window !== 'undefined' && window.innerHeight > window.innerWidth,
   immersiveMode: false,
   immersiveSensitivity: 1.0,
+  mobileJoystickEnabled: persistedUiPrefs.mobileJoystickEnabled ?? DEFAULT_UI_PREFS.mobileJoystickEnabled,
   appBgColor: persistedUiPrefs.appBgColor ?? '#0c0d10',
   bgBlur: persistedUiPrefs.bgBlur ?? 40,
   disableTransparentUi: persistedUiPrefs.disableTransparentUi ?? false,
@@ -500,6 +511,13 @@ export const useStore = create(
 
   /** Sets the base keyboard camera movement speed */
   setCameraMovementSpeed: (speed) => set({ cameraMovementSpeed: speed }),
+
+  /** Shows/hides the mobile camera movement joystick */
+  setMobileJoystickEnabled: (mobileJoystickEnabled) => {
+    const enabled = Boolean(mobileJoystickEnabled);
+    set({ mobileJoystickEnabled: enabled });
+    persistUiPrefs({ ...get(), mobileJoystickEnabled: enabled });
+  },
 
   /** Opens/closes the controls modal */
   setControlsModalOpen: (controlsModalOpen) => set({ controlsModalOpen }),

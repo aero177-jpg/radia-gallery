@@ -23,6 +23,7 @@ function AssetSidebar() {
 
   const isVisible = useStore((state) => state.assetSidebarOpen);
   const setIsVisible = useStore((state) => state.setAssetSidebarOpen);
+  const mobileJoystickEnabled = useStore((state) => state.mobileJoystickEnabled);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteScope, setDeleteScope] = useState('single'); // 'single' or 'all'
   const [clearMetadata, setClearMetadata] = useState(false);
@@ -157,6 +158,7 @@ function AssetSidebar() {
   }, [clearHideTimeout]);
 
   const handleHoverEnter = useCallback(() => {
+    if (mobileJoystickEnabled) return;
     if (hoverOpenTimeoutRef.current) {
       clearTimeout(hoverOpenTimeoutRef.current);
     }
@@ -164,7 +166,7 @@ function AssetSidebar() {
       showSidebar();
       hoverOpenTimeoutRef.current = null;
     }, 500);
-  }, [showSidebar]);
+  }, [mobileJoystickEnabled, showSidebar]);
 
   const handleHoverLeave = useCallback(() => {
     if (hoverOpenTimeoutRef.current) {
@@ -174,10 +176,17 @@ function AssetSidebar() {
   }, []);
 
   const handleTapOpen = useCallback((event) => {
+    if (mobileJoystickEnabled) return;
     event.preventDefault();
     event.stopPropagation();
     showSidebarFromTap();
-  }, [showSidebarFromTap]);
+  }, [mobileJoystickEnabled, showSidebarFromTap]);
+
+  useEffect(() => {
+    if (!mobileJoystickEnabled || !hoverOpenTimeoutRef.current) return;
+    clearTimeout(hoverOpenTimeoutRef.current);
+    hoverOpenTimeoutRef.current = null;
+  }, [mobileJoystickEnabled]);
 
   /**
    * Attempts to repair a broken preview by reloading from IndexedDB
@@ -371,6 +380,7 @@ function AssetSidebar() {
     threshold: 60,
     allowCross: 80,
     onSwipe: ({ dir }) => {
+      if (mobileJoystickEnabled) return;
       if (dir === 'right') showSidebar();
     }
   });
@@ -387,13 +397,15 @@ function AssetSidebar() {
       />
 
       {/* Invisible hover target on left edge */}
-      <div 
-        ref={hoverTargetRef}
-        class="sidebar-hover-target"
-        onMouseEnter={handleHoverEnter}
-        onMouseLeave={handleHoverLeave}
-        onPointerDown={handleTapOpen}
-      />
+      {!mobileJoystickEnabled && (
+        <div
+          ref={hoverTargetRef}
+          class="sidebar-hover-target"
+          onMouseEnter={handleHoverEnter}
+          onMouseLeave={handleHoverLeave}
+          onPointerDown={handleTapOpen}
+        />
+      )}
 
       {/* Trigger Button moved to App.jsx - bottom controls container */}
 

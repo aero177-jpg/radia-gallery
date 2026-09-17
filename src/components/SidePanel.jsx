@@ -30,6 +30,7 @@ function SidePanel() {
   const panelOpen = useStore((state) => state.panelOpen); // assumes this exists
   const slideshowPlaying = useStore((state) => state.slideshowPlaying);
   const viewerControlsDimmed = useStore((state) => state.viewerControlsDimmed);
+  const mobileJoystickEnabled = useStore((state) => state.mobileJoystickEnabled);
   // Store actions
   const togglePanel = useStore((state) => state.togglePanel);
 
@@ -84,6 +85,7 @@ function SidePanel() {
   }, []);
 
   const handleHoverEnter = useCallback(() => {
+    if (mobileJoystickEnabled) return;
     clearHideTimeout();
     if (hoverOpenTimeoutRef.current) {
       clearTimeout(hoverOpenTimeoutRef.current);
@@ -94,7 +96,7 @@ function SidePanel() {
       beginSuppressInteractions();
       hoverOpenTimeoutRef.current = null;
     }, 500);
-  }, [openPanel, isUiHidden, clearHideTimeout, beginSuppressInteractions]);
+  }, [mobileJoystickEnabled, openPanel, isUiHidden, clearHideTimeout, beginSuppressInteractions]);
 
   const handleHoverLeave = useCallback(() => {
     if (hoverOpenTimeoutRef.current) {
@@ -104,11 +106,18 @@ function SidePanel() {
     if (hoverRevealed) scheduleHide();
   }, [hoverRevealed, scheduleHide]);
 
-  const handleTapOpen = useCallback(() => {
+  const handleTapOpen = useCallback((event) => {
+    if (mobileJoystickEnabled) return;
     openPanel();
     if (isUiHidden) setHoverRevealed(true);
     beginSuppressInteractions();
-  }, [openPanel, isUiHidden, beginSuppressInteractions]);
+  }, [mobileJoystickEnabled, openPanel, isUiHidden, beginSuppressInteractions]);
+
+  useEffect(() => {
+    if (!mobileJoystickEnabled || !hoverOpenTimeoutRef.current) return;
+    clearTimeout(hoverOpenTimeoutRef.current);
+    hoverOpenTimeoutRef.current = null;
+  }, [mobileJoystickEnabled]);
 
   // Keep side panel open while mouse is over it
   const handleSideEnter = useCallback(() => {
@@ -214,12 +223,12 @@ function SidePanel() {
         <FontAwesomeIcon icon={faChevronLeft} />
       </button>
       {/* Right-edge hover target to open the side panel */}
-        <div
+        {!mobileJoystickEnabled && <div
             class="sidepanel-hover-target"
             onMouseEnter={handleHoverEnter}
             onMouseLeave={handleHoverLeave}
             onPointerDown={handleTapOpen}
-          />
+          />}
       {/* Side panel content */}
       <div
         class={`side${isUiHidden && !hoverRevealed ? ' slideshow-hide' : ''}`}

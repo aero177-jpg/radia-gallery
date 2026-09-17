@@ -232,6 +232,103 @@ input[type="checkbox"]:disabled:checked {
   border-radius: 16px;
 }
 
+.mobile-joystick {
+  position: absolute;
+  bottom: max(92px, 18dvh);
+  width: 112px;
+  height: 112px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  background: rgba(12, 16, 26, 0.34);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mobile-move-joystick {
+  left: 18px;
+}
+
+.mobile-look-joystick {
+  right: 18px;
+}
+
+.mobile-elevation-controls {
+  position: absolute;
+  right: 142px;
+  bottom: max(92px, 18dvh);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  height: 112px;
+  pointer-events: auto;
+}
+
+.mobile-elevation-button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  background: rgba(12, 16, 26, 0.34);
+  backdrop-filter: blur(8px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mobile-elevation-button:active {
+  background: rgba(238, 244, 250, 0.28);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.mobile-elevation-button span {
+  width: 0;
+  height: 0;
+  border-right: 7px solid transparent;
+  border-bottom: 10px solid rgba(238, 244, 250, 0.82);
+  border-left: 7px solid transparent;
+}
+
+.mobile-elevation-button.is-down span {
+  transform: rotate(180deg);
+}
+
+.mobile-joystick::before,
+.mobile-joystick::after {
+  content: "";
+  position: absolute;
+  inset: 50% 14px auto;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mobile-joystick::after {
+  inset: 14px auto;
+  left: 50%;
+  width: 1px;
+  height: auto;
+}
+
+.mobile-joystick-knob {
+  position: absolute;
+  left: calc(50% - 24px);
+  top: calc(50% - 24px);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(238, 244, 250, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  will-change: transform;
+}
+
 .viewer {
   position: relative;
   background: #8080800d;
@@ -1355,8 +1452,12 @@ input[type="checkbox"]:disabled:checked {
 }
 
 @keyframes loading-progress-slide {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(310%); }
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(310%);
+  }
 }
 
 .fov-label {
