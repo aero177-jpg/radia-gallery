@@ -240,23 +240,14 @@ const extractJobLinks = (payload) => {
 };
 
 const resolveCancelUrl = ({ submitUrl, statusUrl, payload }) => {
+  // The backend returns cancel_url with the submit response; derive it only as a fallback.
   const explicitCancelUrl = payload?.cancel_url || payload?.cancel_path || null;
   if (explicitCancelUrl) return explicitCancelUrl;
 
   const candidateUrl = statusUrl || submitUrl || payload?.submit_url || '';
   const username = extractModalUsernameFromApiUrl(candidateUrl);
   if (username) {
-    return buildApiUrlFromModalUsername(username, 'cancel-job');
-  }
-
-  if (candidateUrl.includes('-process-image')) {
-    return candidateUrl.replace('-process-image', '-cancel-job');
-  }
-  if (candidateUrl.includes('-get-progress')) {
-    return candidateUrl.replace('-get-progress', '-cancel-job');
-  }
-  if (candidateUrl.includes('-get-status')) {
-    return candidateUrl.replace('-get-status', '-cancel-job');
+    return buildApiUrlFromModalUsername(username, 'cancel');
   }
 
   return null;
@@ -1357,7 +1348,7 @@ export async function testSharpCloud(files, {
   const uploads = Array.from(files || []);
   const mockConfig = readCloudMockConfig(uploads.length);
   const saved = loadCloudGpuSettings();
-  const resolvedUrl = ensureModalProcessApiUrl(apiUrl || saved?.apiUrl, 'process-image');
+  const resolvedUrl = ensureModalProcessApiUrl(apiUrl || saved?.apiUrl, 'process');
   const resolvedKey = apiKey || saved?.apiKey;
   const resolvedGpu = (gpuType || saved?.gpuType || 'a10').trim().toLowerCase();
   const resolvedStorageTarget = storageTarget || undefined;
