@@ -287,7 +287,7 @@ function DebugSettings() {
   const FAKE_PER_FILE_MS = 10000;
   // Steps: 0=off, 1=upload, 2=timer running (warmup→processing), 3=checkpoint step1,
   //        4=checkpoint step2, 5=checkpoint step3 (done→transferring), 6=error, 7=off
-  const DEBUG_ERROR_DETAIL = `Request URL\nhttps://aero177-jpg--ml-sharp-optimized-process-image.modal.run/\nRequest Method\nPOST\nStatus Code\n400 Bad Request detail\n: \"storageTarget=r2 requires: accessString with s3Endpoint, s3AccessKeyId, s3SecretAccessKey, s3Bucket\"`;
+  const DEBUG_ERROR_DETAIL = `Request URL\nhttps://aero177-jpg--ml-sharp-optimized-api.modal.run/process\nRequest Method\nPOST\nStatus Code\n400 Bad Request detail\n: \"storageTarget=r2 requires: accessString with s3Endpoint, s3AccessKeyId, s3SecretAccessKey, s3Bucket\"`;
   const stopDebugTimer = useCallback(() => {
     if (debugTimerRef.current) {
       clearInterval(debugTimerRef.current);
