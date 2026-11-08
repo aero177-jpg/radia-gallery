@@ -5,11 +5,11 @@ Baseline: commit `7a7395b`, 2026-11-08.
 ## Confirmed directly
 
 - `src/viewer.js` `initViewer`: `renderer.setPixelRatio(window.devicePixelRatio)` has no cap. Splat fill cost grows with the square of the ratio.
-- `native-file` code is unreachable since Tauri was removed: nothing defines `openStream`, so `isNativeDesktopFile` and `useNativeStream` are always false. Left in place pending a decision on desktop builds.
 
 ## Stutter investigation (Intel UHD 630, 2026-11-08)
 
-- Slow frames are GPU-bound. Render cycles run about 58 ms and sometimes double to about 116 ms. Turning off `spark.autoUpdate` or the composer changed nothing. Inference: fill cost dominates, so the lever is pixels and overdraw (render scale, `maxStdDev`).
+- Controlled glides are not rendered slower than manual drags: both run about 16 fps. Glides look worse because they move further and less evenly per frame: median 2-3 degrees and p95 about 13 degrees per rendered frame, against about 0.34 and 0.45 for a test drag. `SAME_BASE_GLIDE_MS` is a fixed 2000 ms regardless of distance. Disabling the blurred background made no difference.
+- Render cost has a floor near 48 ms (about 21 fps) on 991k splats at DPR 1. Dropping to 50% resolution or lowering `maxStdDev` from 2.5 to 1.5 each reach it from 64 ms (about 16 fps), and combining them gains nothing, so the floor is not pixel fill. Inference: it scales with splat count. Turning off `spark.autoUpdate` or the composer changed nothing.
 - `computeMlSharpDepthFocus` costs about 250-290 ms on the main thread per activation (about 50k `getSplat`/`unpackSplat` calls). It is the 300-400 ms long task, but happens at opacity 0, so it adds blank time and not visible judder.
 - Raising the `gl.getError` interval from 500 to 4000 ms did not change p95 (tested and reverted).
 - Spark readback (`getBufferSubData`) cost 76-394 ms per transition; the source is Spark, not `src/`. Not yet explained.
