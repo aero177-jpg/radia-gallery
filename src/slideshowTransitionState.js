@@ -57,7 +57,3 @@ export const cancelSlideshowTransition = (transitionId) => {
   if (transitionId == null) return false;
   return transitionState.delete(transitionId);
 };
-
-export const clearSlideshowTransitions = () => {
-  transitionState.clear();
-};

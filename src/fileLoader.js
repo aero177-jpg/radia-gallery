@@ -1078,7 +1078,6 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
       const { intrinsics } = cameraMetadata;
       const aspect = intrinsics.imageWidth / intrinsics.imageHeight;
       setOriginalImageAspect(aspect);
-      // console.log(`[Aspect] ${asset.name}: ${aspect.toFixed(4)} (${intrinsics.imageWidth}x${intrinsics.imageHeight})`);
       store.addLog(
         `${formatLabel ?? "3DGS"} camera: fx=${intrinsics.fx.toFixed(1)}, fy=${intrinsics.fy.toFixed(1)}, ` +
           `cx=${intrinsics.cx.toFixed(1)}, cy=${intrinsics.cy.toFixed(1)}, ` +
@@ -1087,7 +1086,6 @@ export const loadSplatFile = async (assetOrFile, options = {}) => {
     } else if (customAspectRatio && customAspectRatio > 0) {
       // Apply custom aspect ratio from saved metadata
       setOriginalImageAspect(customAspectRatio);
-      console.log(`[Aspect] ${asset.name}: custom override ${customAspectRatio.toFixed(4)}`);
 
       store.setCustomAspectRatio(aspectRatioToKey(customAspectRatio));
     } else {

@@ -410,7 +410,7 @@ export const useStore = create(
   metadataMissing: false,
   customMetadataAvailable: false,
   customMetadataControlsVisible: false,
-  isCustomModel: false,
+  isCustomModel: false, // full scene mode: a real scene with no SHARP intrinsics, navigated by camera-pose keyframes.
   customModelScale: 1,
   customBaseOrientation: 'y-down',
   customModelRotation: { x: 0, y: 0, z: 0 },
@@ -466,7 +466,7 @@ export const useStore = create(
   vrBaseScale: persistedUiPrefs.vrBaseScale ?? 0,
   vrResolutionScale: persistedUiPrefs.vrResolutionScale ?? 0.5,
   vrPassthroughEnabled: persistedUiPrefs.vrPassthroughEnabled ?? false,
-  fillMode: false,
+  fillMode: false, // deprecated projection flag, unrelated to full scene mode.
   
   // Debug
   debugLoadingMode: false,

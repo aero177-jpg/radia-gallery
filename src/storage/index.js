@@ -140,7 +140,7 @@ export const restoreSource = (config) => {
  */
 export const initializeSources = async () => {
   const configs = await _loadAllSources();
-  console.log('[Storage] Found persisted configs:', configs);
+  console.log('[Storage] Found persisted configs:', configs.length);
   const sources = [];
 
   for (const config of configs) {
