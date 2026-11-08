@@ -40,6 +40,8 @@ function DebugSettings() {
   const setDebugFpsLimitEnabled = useStore((state) => state.setDebugFpsLimitEnabled);
   const debugFrameGateEnabled = useStore((state) => state.debugFrameGateEnabled);
   const setDebugFrameGateEnabled = useStore((state) => state.setDebugFrameGateEnabled);
+  const debugSplatBatchingEnabled = useStore((state) => state.debugSplatBatchingEnabled);
+  const setDebugSplatBatchingEnabled = useStore((state) => state.setDebugSplatBatchingEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
   const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
@@ -698,6 +700,18 @@ function DebugSettings() {
               type="checkbox"
               checked={debugFrameGateEnabled}
               onChange={(e) => setDebugFrameGateEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Batched drawing (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugSplatBatchingEnabled}
+              onChange={(e) => setDebugSplatBatchingEnabled(e.target.checked)}
             />
             <span class="switch-track" aria-hidden="true" />
           </label>

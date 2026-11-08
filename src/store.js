@@ -75,6 +75,7 @@ const QUALITY_PRESET_KEY = 'qualityPreset';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
 const DEBUG_FRAME_GATE_KEY = 'debugFrameGateEnabled';
+const DEBUG_SPLAT_BATCHING_KEY = 'debugSplatBatchingEnabled';
 const DEBUG_RUNTIME_LOD_KEY = 'debugRuntimeLodEnabled';
 const DEBUG_SPLAT_SH_LEVEL_KEY = 'debugSplatShLevel';
 const DEBUG_LOD_SPLAT_COUNT_KEY = 'debugLodSplatCount';
@@ -304,6 +305,7 @@ const persistedQualityPreset = getPersistedString(
 const persistedCustomStdDev = getPersistedNumber(DEBUG_SPARK_STDDEV_KEY, Math.sqrt(5));
 const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
 const persistedFrameGate = getPersistedBoolean(DEBUG_FRAME_GATE_KEY, true);
+const persistedSplatBatching = getPersistedBoolean(DEBUG_SPLAT_BATCHING_KEY, true);
 const persistedRuntimeLod = getPersistedBoolean(DEBUG_RUNTIME_LOD_KEY, false);
 const persistedSplatShLevel = getPersistedNumber(DEBUG_SPLAT_SH_LEVEL_KEY, 3);
 const persistedLodSplatCount = getPersistedNumber(DEBUG_LOD_SPLAT_COUNT_KEY, 500000);
@@ -475,6 +477,7 @@ export const useStore = create(
   debugSettingsExpanded: false,
   debugFpsLimitEnabled: initialQuality.fpsLimit,
   debugFrameGateEnabled: persistedFrameGate,
+  debugSplatBatchingEnabled: persistedSplatBatching,
   debugSparkMaxStdDev: initialQuality.stdDev,
   debugRuntimeLodEnabled: persistedRuntimeLod,
   debugSplatShLevel: Math.max(0, Math.min(3, Math.round(persistedSplatShLevel))),
@@ -901,6 +904,19 @@ export const useStore = create(
       }
     }
     set({ debugFrameGateEnabled: value });
+  },
+
+  /** Enables/disables drawing many splats per GPU instance */
+  setDebugSplatBatchingEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(DEBUG_SPLAT_BATCHING_KEY, String(value));
+      } catch (err) {
+        console.warn('[Store] Failed to persist debugSplatBatchingEnabled', err);
+      }
+    }
+    set({ debugSplatBatchingEnabled: value });
   },
 
   /** Sets Spark splat maxStdDev (rendering width) */

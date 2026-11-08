@@ -4,6 +4,7 @@
 
 import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { setSplatBatching } from "./splatBatching.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -584,6 +585,11 @@ export const initViewer = (viewerEl) => {
     setFrameGateEnabled(frameGateForcedByUrl || useStore.getState().debugFrameGateEnabled);
     useStore.subscribe((s) => s.debugFrameGateEnabled, (enabled) => {
       setFrameGateEnabled(enabled);
+      requestRender();
+    });
+    setSplatBatching(spark, useStore.getState().debugSplatBatchingEnabled);
+    useStore.subscribe((s) => s.debugSplatBatchingEnabled, (enabled) => {
+      setSplatBatching(spark, enabled);
       requestRender();
     });
   }).catch(() => {});

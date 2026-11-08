@@ -732,6 +732,162 @@ test('frame gate on and off during playback', async ({ page, context }) => {
   await page.evaluate(() => window.__probe.v.setFrameGateEnabled(false));
 });
 
+test('batched splat drawing', async ({ page, context }) => {
+  test.setTimeout(900_000);
+  const errors = [];
+  page.on('console', (m) => { if (m.type() === 'error' || /THREE\.WebGLProgram|Shader Error/.test(m.text())) errors.push(m.text().slice(0, 400)); });
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.ss = await import('/src/slideshowController.js');
+    probe.useStore.getState().setDebugSplatBatchingEnabled(false);
+    const { spark, THREE } = probe.v;
+    const originalGeometry = spark.geometry;
+    const originalShader = spark.material.vertexShader;
+    const makeGeometry = (batch) => {
+      const positions = new Float32Array(batch * 12);
+      const indices = new Uint16Array(batch * 6);
+      const corners = [-1, -1, 1, -1, 1, 1, -1, 1];
+      const quad = originalGeometry.index.array;
+      for (let s = 0; s < batch; s += 1) {
+        for (let v = 0; v < 4; v += 1) positions.set([corners[v * 2], corners[v * 2 + 1], s], (s * 4 + v) * 3);
+        for (let i = 0; i < 6; i += 1) indices[s * 6 + i] = s * 4 + quad[i];
+      }
+      const geometry = new THREE.InstancedBufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      let instances = 0;
+      Object.defineProperty(geometry, 'instanceCount', {
+        get: () => instances,
+        set: (active) => { spark.material.uniforms.batchActiveSplats.value = active; instances = Math.ceil(active / batch); },
+      });
+      return geometry;
+    };
+    spark.material.uniforms.batchActiveSplats = { value: 0 };
+    const patchedShader = (batch) => originalShader
+      .replaceAll('gl_InstanceID', 'batchSplatId')
+      .replace('void main() {', `uniform int batchActiveSplats;\nvoid main() {\n    int batchSplatId = gl_InstanceID * ${batch} + int(position.z);\n    if (batchSplatId >= batchActiveSplats) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }`);
+    const geometries = new Map();
+    probe.setBatch = (batch) => {
+      const active = spark.geometry.instanceCount;
+      const previousBatch = probe.batch || 1;
+      const count = previousBatch === 1 ? active : spark.material.uniforms.batchActiveSplats.value;
+      if (batch === 1) {
+        spark.geometry = originalGeometry;
+        spark.material.vertexShader = originalShader;
+      } else {
+        if (!geometries.has(batch)) geometries.set(batch, makeGeometry(batch));
+        spark.geometry = geometries.get(batch);
+        spark.material.vertexShader = patchedShader(batch);
+      }
+      spark.geometry.instanceCount = count;
+      spark.material.needsUpdate = true;
+      probe.batch = batch;
+      probe.v.requestRender();
+    };
+    const gl = probe.v.renderer.getContext();
+    // One draw, timed from submit to GPU completion. The camera is still, so Spark does not regenerate or sort.
+    probe.drawCost = async (frames) => {
+      const out = [];
+      for (let i = 0; i < frames; i += 1) {
+        const t = performance.now();
+        probe.v.forceRenderNow();
+        const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gl.flush();
+        await new Promise((resolve) => {
+          const poll = () => { if (gl.clientWaitSync(fence, 0, 0) === gl.TIMEOUT_EXPIRED) setTimeout(poll, 0); else resolve(); };
+          setTimeout(poll, 0);
+        });
+        gl.deleteSync(fence);
+        out.push(performance.now() - t);
+      }
+      return out.sort((a, b) => a - b)[Math.floor(frames / 2)];
+    };
+    probe.setScale = (s) => { probe.v.renderer.setPixelRatio(s); probe.v.composer.setPixelRatio(s); };
+    // Hash of the rendered canvas, read in the same task as the draw.
+    probe.pixels = () => {
+      probe.v.forceRenderNow();
+      const { drawingBufferWidth: w, drawingBufferHeight: h } = gl;
+      const data = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      return Array.from(data.filter((_, i) => i % 1024 === 0));
+    };
+    probe.frames = [];
+    probe.frameRec = false;
+    const { composer, camera } = probe.v;
+    const realRender = composer.render.bind(composer);
+    composer.render = (...args) => {
+      const out = realRender(...args);
+      if (probe.frameRec) probe.frames.push({ t: performance.now(), mesh: probe.v.currentMesh?.uuid ?? null, op: parseFloat(getComputedStyle(probe.el).opacity), pos: camera.position.toArray() });
+      return out;
+    };
+  });
+
+  await page.evaluate(() => window.__probe.drawCost(10));
+  const splats = await page.evaluate(() => window.__probe.v.spark.activeSplats);
+  console.log(`BATCH active splats ${splats}`);
+  const drawRow = async (label, batch, scale) => {
+    const ms = await page.evaluate(async ({ b, s }) => {
+      const p = window.__probe;
+      p.setBatch(b);
+      p.setScale(s);
+      await p.drawCost(8);
+      return p.drawCost(40);
+    }, { b: batch, s: scale });
+    console.log(`BATCH draw ${label.padEnd(30)} median ${ms.toFixed(1)} ms`);
+  };
+  for (let round = 1; round <= 3; round += 1) {
+    for (const scale of [1, 0.25]) {
+      await drawRow(`#${round} one per instance @${scale}`, 1, scale);
+      await drawRow(`#${round} 128 per instance @${scale}`, 128, scale);
+      await drawRow(`#${round} 512 per instance @${scale}`, 512, scale);
+    }
+  }
+  await page.evaluate(() => window.__probe.setScale(1));
+
+  const compare = await page.evaluate(async () => {
+    const p = window.__probe;
+    p.setBatch(1);
+    await p.drawCost(5);
+    const a = p.pixels();
+    p.setBatch(128);
+    await p.drawCost(5);
+    const b = p.pixels();
+    let sum = 0; let max = 0;
+    a.forEach((v, i) => { const d = Math.abs(v - b[i]); sum += d; max = Math.max(max, d); });
+    return { samples: a.length, meanDiff: sum / a.length, maxDiff: max, nonBlank: a.filter((v) => v > 0).length };
+  });
+  console.log(`BATCH image diff ${JSON.stringify(compare)}`);
+
+  const q = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
+  const play = async (label, batch) => {
+    await page.evaluate((b) => window.__probe.setBatch(b), batch);
+    await waitForSettled(page);
+    await waitForNeighbours(page);
+    await page.evaluate(() => {
+      const p = window.__probe;
+      p.useStore.getState().setSlideshowContinuousMode(true);
+      p.useStore.getState().setSlideshowDuration(3);
+      p.frames = [];
+      p.frameRec = true;
+      p.ss.startSlideshow();
+    });
+    await page.waitForTimeout(20000);
+    await page.evaluate(() => { window.__probe.frameRec = false; window.__probe.ss.stopSlideshow(); });
+    const frames = await page.evaluate(() => window.__probe.frames);
+    const gaps = frames.slice(1).map((f, i) => ({ f, prev: frames[i] })).filter(({ f, prev }) => f.op >= 0.5 && f.mesh === prev.mesh).map(({ f, prev }) => f.t - prev.t).sort((a, b) => a - b);
+    const span = gaps.reduce((a, b) => a + b, 0);
+    console.log(`BATCH play ${label.padEnd(30)} fps ${(gaps.length / span * 1000).toFixed(1).padStart(5)}  interval p50 ${q(gaps, 0.5).toFixed(0).padStart(3)} p95 ${q(gaps, 0.95).toFixed(0).padStart(3)} p99 ${q(gaps, 0.99).toFixed(0).padStart(3)}`);
+  };
+  for (let round = 1; round <= 2; round += 1) {
+    await play(`#${round} one per instance`, 1);
+    await play(`#${round} 128 per instance`, 128);
+  }
+  await page.evaluate(() => window.__probe.setBatch(1));
+  console.log(`BATCH console errors ${errors.length}: ${errors.slice(0, 3).join(' | ')}`);
+});
+
 test('fade layer variants', async ({ page, context }) => {
   await cacheDemoAssets(context);
   await openDemo(page, DEMOS.image);
