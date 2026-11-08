@@ -41,6 +41,21 @@ Other rAF loops: keyboard movement in `Viewer.jsx`, immersive, auto orbit, reset
 
 CSS opacity fades (`.viewer.slide-out` 0.3 s; `.slide-in` 0.6 s with 0.2 s delay) run alongside the JS tweens and are not synchronized with them.
 
+## Image tradeoff: design intent (from the user)
+
+The tradeoff is the handoff between two images. Fade-out and fade-in are timed against each other to minimize dead time between splats.
+
+- The incoming splat loads, then fades in **mid-transition**, so the orbit hides splat edge artifacts.
+- The glow background is the original image, blurred, behind the splat. It hides cracks in the splat.
+- The glow is static while the splat rotates, so it has a deliberate timing offset: it should fade in when the frame is mostly filled by the final image, because orbiting reveals edges and empty space.
+- Most problems appear in the ramped (non-continuous) transition, where much of the work is squeezed into a short window.
+
+How that maps to code today:
+
+- Regular slide tweens are eased: `power2.in` out, `power2.out` in. Continuous tweens use `ease: "none"` (constant speed); `power2.inOut` is only on their glide variants.
+- Canvas fade-in is 0.6 s with 0.2 s delay; glow fade-in is 0.6 s with 0.3 s delay (`style.css`). The camera tween has its own 0.12 s delay in JS. These are separate clocks and are not synchronized.
+- Neighbours: `collectNeighborAssets` picks prev and next (wrapping), and the cache keeps exactly {current, prev, next}. Preloading the newly needed neighbour starts unawaited right at the swap, just before slide-in, so it overlaps the visible fade-in.
+
 ## Camera ownership
 
 No arbiter. Convention only: module handles, `cancelX()` calls, and `controls.enabled` toggles.
@@ -56,7 +71,7 @@ No arbiter. Convention only: module handles, `cancelX()` calls, and `controls.en
 
 ## Modes and terms
 
-- Full glossary is in `CLAUDE.md`. The two modes are confirmed by the user: image (SHARP) mode loads a new splat per slide; full scene mode (`isCustomModel`) loads camera poses within one scene.
+- Full glossary is in `CLAUDE.md`. The two modes are confirmed by the user: image (SHARP) mode loads a new splat per slide; scene mode (`isCustomModel`) loads camera poses within one scene.
 - Keyframes are custom views: assets with `isViewInstance`, `baseAssetId`, `viewId`, sharing one mesh. Per-view settings are stored as `viewCustomAnimations[viewId]`.
 - Mobile: `min(innerWidth, innerHeight) <= 768`; defaults to the performance preset; portrait uses `MobileSheet`.
 - VR: `handleSessionStart` suspends the normal loop and uses `renderer.setAnimationLoop`, calling `renderer.render` directly and bypassing the composer.

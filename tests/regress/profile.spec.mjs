@@ -251,3 +251,174 @@ test('measure resolution and splat quality during motion', async ({ page, contex
   });
   console.log(results.join('\n'));
 });
+
+test('image handoff timeline by phase', async ({ page, context }) => {
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => {
+    const probe = window.__probe;
+    const { v, el } = probe;
+    probe.ss = await import('/src/slideshowController.js');
+    const original = v.composer.render;
+    probe.renders = [];
+    v.composer.render = function wrapped(...args) {
+      if (probe.rec) probe.renders.push({ t: performance.now(), cam: v.camera.position.toArray(), dist: v.camera.position.distanceTo(v.controls.target) });
+      return original.apply(this, args);
+    };
+    void el;
+  });
+
+  const report = (label, r) => {
+    const phaseOf = (s, moving) => {
+      if (s.opacity < 0.05) return '2 hidden';
+      if (s.out) return '1 fade-out';
+      if (s.opacity < 0.99 || s.in) return '3 fade-in';
+      return moving ? '4 full, moving' : '5 full, still';
+    };
+    const camMoved = (a, b) => Math.hypot(a.cam[0] - b.cam[0], a.cam[1] - b.cam[1], a.cam[2] - b.cam[2]) > 1e-5;
+    const phases = {};
+    r.samples.forEach((s, i) => {
+      if (!i) return;
+      const p = phaseOf(s, camMoved(s, r.samples[i - 1]));
+      (phases[p] ??= { gaps: [], steps: [], renders: 0, longMs: 0 }).gaps.push(s.t - r.samples[i - 1].t);
+    });
+    const sampleAt = (t) => { let lo = 0, hi = r.samples.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (r.samples[m].t < t) lo = m + 1; else hi = m; } return lo; };
+    r.renders.forEach((x, i) => {
+      if (!i) return;
+      const at = sampleAt(x.t);
+      const p = phaseOf(r.samples[at], at && camMoved(r.samples[at], r.samples[at - 1]));
+      const entry = phases[p]; if (!entry) return;
+      entry.renders += 1;
+      const prev = r.renders[i - 1];
+      entry.steps.push((Math.hypot(x.cam[0] - prev.cam[0], x.cam[1] - prev.cam[1], x.cam[2] - prev.cam[2]) / Math.max(x.dist, 1e-3)) * 57.3);
+    });
+    r.longtasks.forEach((t) => { const p = phaseOf(r.samples[sampleAt(t.t)], false); if (phases[p]) phases[p].longMs += t.d; });
+    console.log(`\n== ${label} (${Math.round(r.samples.at(-1).t - r.samples[0].t)}ms)`);
+    for (const [name, e] of Object.entries(phases).sort()) {
+      const g = e.gaps.slice().sort((a, b) => a - b), st = e.steps.slice().sort((a, b) => a - b);
+      const q = (arr, p) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))] ?? 0;
+      console.log(`${name.padEnd(16)} time ${String(Math.round(g.reduce((a, b) => a + b, 0))).padStart(6)}ms  renders ${String(e.renders).padStart(4)}  gap p50 ${String(Math.round(q(g, 0.5))).padStart(3)} p95 ${String(Math.round(q(g, 0.95))).padStart(4)} max ${String(Math.round(g.at(-1) ?? 0)).padStart(4)}  >100ms ${String(g.filter((x) => x > 100).length).padStart(3)}  longTask ${String(Math.round(e.longMs)).padStart(5)}ms  step p50 ${q(st, 0.5).toFixed(2)} p95 ${q(st, 0.95).toFixed(2)}`);
+    }
+  };
+
+  const capture = async (label, action) => {
+    await page.evaluate(() => { window.__probe.renders = []; });
+    await startRecording(page);
+    await action();
+    const r = await stopRecording(page);
+    r.renders = await page.evaluate(() => window.__probe.renders);
+    report(label, r);
+  };
+
+  const playFor = (ms, continuous) => async () => {
+    await page.evaluate((c) => {
+      const { useStore, ss } = window.__probe;
+      useStore.getState().setSlideshowContinuousMode(c);
+      ss.startSlideshow();
+    }, continuous);
+    await page.waitForTimeout(ms);
+    await page.evaluate(() => window.__probe.ss.stopSlideshow());
+  };
+
+  await capture('manual next x3', async () => {
+    for (let i = 0; i < 3; i += 1) {
+      await next(page);
+      await waitForSettled(page);
+      await waitForNeighbours(page);
+    }
+  });
+  await waitForSettled(page);
+  await capture('slideshow, continuous (default)', playFor(24000, true));
+  await waitForSettled(page);
+  await waitForNeighbours(page);
+  await capture('slideshow, non-continuous', playFor(24000, false));
+});
+
+test('attribute main-thread work while the image is visible', async ({ page, context }) => {
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => { window.__probe.ss = await import('/src/slideshowController.js'); });
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Profiler.enable');
+  await cdp.send('Profiler.setSamplingInterval', { interval: 1000 });
+
+  await startRecording(page);
+  const t0 = await page.evaluate(() => performance.now());
+  await cdp.send('Profiler.start');
+  await page.evaluate(() => window.__probe.ss.startSlideshow());
+  await page.waitForTimeout(24000);
+  await page.evaluate(() => window.__probe.ss.stopSlideshow());
+  const { profile } = await cdp.send('Profiler.stop');
+  const { samples } = await stopRecording(page);
+
+  const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  const parent = new Map();
+  profile.nodes.forEach((n) => (n.children || []).forEach((c) => parent.set(c, n.id)));
+  const opacityAt = (t) => { let lo = 0, hi = samples.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (samples[m].t < t) lo = m + 1; else hi = m; } return samples[lo].opacity; };
+  const name = (n) => `${n.callFrame.functionName || '(anon)'} ${n.callFrame.url.split('/').pop().split('?')[0]}:${n.callFrame.lineNumber}`;
+
+  const self = new Map();
+  const appCaller = new Map();
+  let t = t0;
+  let visibleBusy = 0;
+  profile.samples.forEach((id, i) => {
+    const dMs = (profile.timeDeltas[i] || 0) / 1000;
+    t += dMs;
+    const n = byId.get(id);
+    if (['(idle)', '(root)', '(program)'].includes(n.callFrame.functionName)) return;
+    if (opacityAt(t) < 0.05) return;
+    visibleBusy += dMs;
+    self.set(name(n), (self.get(name(n)) || 0) + dMs);
+    let cursor = n;
+    let label = '(no app frame)';
+    while (cursor) {
+      if (/\/src\//.test(cursor.callFrame.url)) { label = name(cursor); break; }
+      cursor = byId.get(parent.get(cursor.id));
+    }
+    appCaller.set(label, (appCaller.get(label) || 0) + dMs);
+  });
+  const top = (m, k = 16) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, k).map(([key, ms]) => `${String(Math.round(ms)).padStart(6)}ms  ${key}`).join('\n');
+  console.log(`VISIBLE main-thread busy: ${Math.round(visibleBusy)}ms\n--SELF\n${top(self)}\n--APP CALLER\n${top(appCaller)}`);
+});
+
+test('ab test readback and error checks during playback', async ({ page, context }) => {
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  const base = await page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.ss = await import('/src/slideshowController.js');
+    const gl = probe.v.renderer.getContext();
+    probe.realGetError = gl.getError.bind(gl);
+    probe.gl = gl;
+    return probe.v.spark.minSortIntervalMs;
+  });
+  console.log(`default minSortIntervalMs: ${base}`);
+
+  const variant = async (label, { noGetError = false, sortMs = base }) => {
+    await waitForSettled(page);
+    await waitForNeighbours(page);
+    await page.evaluate(({ off, ms }) => {
+      const { v, gl, realGetError } = window.__probe;
+      gl.getError = off ? () => 0 : realGetError;
+      v.spark.minSortIntervalMs = ms;
+    }, { off: noGetError, ms: sortMs });
+    await startRecording(page);
+    await page.evaluate(() => window.__probe.ss.startSlideshow());
+    await page.waitForTimeout(24000);
+    await page.evaluate(() => window.__probe.ss.stopSlideshow());
+    const { samples, longtasks } = await stopRecording(page);
+    const visible = samples.slice(1).map((s, i) => ({ op: s.opacity, gap: s.t - samples[i].t, t: s.t })).filter((x) => x.op >= 0.05);
+    const gaps = visible.map((x) => x.gap).sort((a, b) => a - b);
+    const q = (p) => Math.round(gaps[Math.floor(gaps.length * p)]);
+    const span = visible.reduce((a, x) => a + x.gap, 0);
+    const longVisible = longtasks.filter((t) => { const s = samples.find((x) => x.t >= t.t); return s && s.opacity >= 0.05; }).reduce((a, t) => a + t.d, 0);
+    console.log(`${label.padEnd(30)} p95 ${String(q(0.95)).padStart(4)}  p99 ${String(q(0.99)).padStart(4)}  max ${String(Math.round(gaps.at(-1))).padStart(4)}  >100ms/10s ${(gaps.filter((g) => g > 100).length / span * 10000).toFixed(1).padStart(5)}  >200ms ${String(gaps.filter((g) => g > 200).length).padStart(3)}  longTask visible ${String(Math.round(longVisible)).padStart(5)}ms`);
+  };
+
+  for (let round = 1; round <= 2; round += 1) {
+    await variant(`#${round} default`, {});
+    await variant(`#${round} no getError`, { noGetError: true });
+    await variant(`#${round} sort every 250ms`, { sortMs: 250 });
+    await variant(`#${round} no getError + sort 250`, { noGetError: true, sortMs: 250 });
+  }
+});

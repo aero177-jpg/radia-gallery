@@ -13,9 +13,14 @@ Naming in the code is inconsistent because features were stacked over time. Do n
 | Product term | In code | Meaning |
 |---|---|---|
 | Image / SHARP mode | `isCustomModel === false` (camera intrinsics present) | Converted photos. The slideshow loads a new splat per slide. |
-| Full scene mode | `isCustomModel === true` (no `cameraMetadata.intrinsics`), set in `fileLoader.js` | Real scenes, non-SHARP splats. The camera is treated differently. |
+| Scene mode | `isCustomModel === true` (no `cameraMetadata.intrinsics`), set in `fileLoader.js` | Real scenes, non-SHARP splats. The camera is treated differently. |
 | Keyframes | Custom views: `customViews`, `customMetadata`, view-instance assets (`isViewInstance`, `baseAssetId`, `viewId`) | Camera poses within one loaded scene. The "slideshow" moves between poses instead of loading splats. |
 | Same-base navigation | `navigateWithinLoadedBaseAsset` | Moving between keyframes of one mesh. |
+| Regular transition | `slideOutAnimation`, `slideInAnimation` (image mode, manual) | A new image transitions out and in, with ramped speed. |
+| Slideshow | `slideshowController.js` | The same transition, triggered automatically. |
+| Continuous mode | `slideshowContinuousMode`, `continuous-*` slide modes | Transition lasts the whole image session at constant speed, allowing larger movement. |
+| Tradeoff | Slide-out into swap into slide-in, in `loadSplatFile` | The timed handoff between images. See "Image tradeoff" in ARCHITECTURE. Protect it. |
+| Glow background | `.bg-image-container`, `backgroundManager.js` | The original image, blurred, behind the splat. |
 | No setup yet | `metadataMissing` (no intrinsics and no custom views) | A full scene with no keyframes saved. |
 
 When you find another misleading name or undocumented interaction, add it here or to `docs/agent/KNOWN_ISSUES.md`.
