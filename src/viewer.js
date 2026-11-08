@@ -69,7 +69,9 @@ let lastGlErrorCheckAt = 0;
 let autoRecoveringFromGlError = false;
 let glContextLost = false;
 
-const GL_ERROR_CHECK_INTERVAL_MS = 500;
+// gl.getError() blocks until queued GPU work finishes. At 500 ms this stole about 2 s of
+// main-thread time per 24 s of image-mode playback on integrated GPUs, so keep it rare.
+const GL_ERROR_CHECK_INTERVAL_MS = 4000;
 const GL_ERROR_STREAK_THRESHOLD = 3;
 const CONTEXT_LOSS_RECOVERY_DELAY_MS = 1500;
 
