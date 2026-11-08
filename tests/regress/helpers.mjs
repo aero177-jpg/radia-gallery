@@ -72,7 +72,7 @@ const installProbeInPage = async () => {
 };
 
 export const openDemo = async (page, demo) => {
-  await page.goto('/');
+  await page.goto(process.env.REGRESS_FRAME_GATE ? '/?frameGate' : '/');
   await page.getByRole('button', { name: /^D\s*e\s*m\s*o$/ }).click();
   await page.getByText(demo.title, { exact: true }).click();
   await page.getByRole('button', { name: 'Open selected' }).click();
@@ -187,7 +187,9 @@ export const summarizeFrames = ({ samples, longtasks }) => {
 
 /** Measures render cost: rendering is on demand, so idle frame rate says nothing. */
 export const measureForcedRender = (page, ms = 4000) => page.evaluate(async (duration) => {
-  const { v } = window.__probe;
+  const { v, useStore } = window.__probe;
+  // The frame gate skips draws, so with it on these rAF gaps would not measure render cost.
+  v.setFrameGateEnabled(false);
   const gaps = [];
   const start = performance.now();
   let last = start;
@@ -198,6 +200,7 @@ export const measureForcedRender = (page, ms = 4000) => page.evaluate(async (dur
     gaps.push(now - last);
     last = now;
   }
+  v.setFrameGateEnabled(useStore.getState().debugFrameGateEnabled);
   gaps.shift();
   gaps.sort((a, b) => a - b);
   return {

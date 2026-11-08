@@ -422,3 +422,358 @@ test('ab test readback and error checks during playback', async ({ page, context
     await variant(`#${round} no getError + sort 250`, { noGetError: true, sortMs: 250 });
   }
 });
+
+test('tradeoff freezes and neighbour readiness', async ({ page, context }) => {
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => { window.__probe.ss = await import('/src/slideshowController.js'); });
+
+  const run = async (label, continuous, seconds) => {
+    await waitForSettled(page);
+    await waitForNeighbours(page);
+    await page.evaluate(({ c, d }) => {
+      const { useStore, ss } = window.__probe;
+      useStore.getState().setSlideshowContinuousMode(c);
+      useStore.getState().setSlideshowDuration(d);
+      ss.startSlideshow();
+    }, { c: continuous, d: seconds });
+    await startRecording(page);
+    await page.waitForTimeout(24000);
+    const { samples } = await stopRecording(page);
+    await page.evaluate(() => window.__probe.ss.stopSlideshow());
+
+    const swaps = [];
+    let loadingSpans = 0;
+    samples.forEach((s, i) => {
+      if (!i) return;
+      if (s.mesh !== samples[i - 1].mesh) swaps.push(s.t);
+      if (s.loading && !samples[i - 1].loading) loadingSpans += 1;
+    });
+    const hiddenSpans = [];
+    let hiddenStart = null;
+    samples.forEach((s) => {
+      if (s.opacity < 0.05) { hiddenStart ??= s.t; } else if (hiddenStart !== null) { hiddenSpans.push(s.t - hiddenStart); hiddenStart = null; }
+    });
+    const hiddenAvg = hiddenSpans.length ? Math.round(hiddenSpans.reduce((x, y) => x + y, 0) / hiddenSpans.length) : 0;
+    const visible = samples.slice(1).map((s, i) => ({ s, gap: s.t - samples[i].t })).filter((x) => x.s.opacity >= 0.05);
+    const gaps = visible.map((x) => x.gap).sort((a, b) => a - b);
+    const freezes = visible.filter((x) => x.gap > 200).map((x) => {
+      const since = swaps.filter((t) => t <= x.s.t).at(-1);
+      return `${since === undefined ? '?' : Math.round(x.s.t - since)}ms/${Math.round(x.gap)}`;
+    });
+    console.log(`${label.padEnd(26)} hiddenAvg ${String(hiddenAvg).padStart(4)}ms  swaps ${String(swaps.length).padStart(2)}  uncachedLoads ${String(loadingSpans).padStart(2)}  p95 ${String(Math.round(gaps[Math.floor(gaps.length * 0.95)])).padStart(3)}  max ${String(Math.round(gaps.at(-1))).padStart(4)}  >200ms ${String(freezes.length).padStart(2)}  [afterSwap/gap] ${freezes.join(' ')}`);
+  };
+
+  for (let round = 1; round <= 2; round += 1) {
+    await run(`#${round} continuous 3s`, true, 3);
+    await run(`#${round} non-continuous 3s`, false, 3);
+    await run(`#${round} continuous 1s`, true, 1);
+  }
+});
+
+test('what runs inside tradeoff freezes', async ({ page, context }) => {
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.ss = await import('/src/slideshowController.js');
+    const { useStore, ss } = probe;
+    useStore.getState().setSlideshowContinuousMode(true);
+    useStore.getState().setSlideshowDuration(3);
+    void ss;
+  });
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Profiler.enable');
+  await cdp.send('Profiler.setSamplingInterval', { interval: 1000 });
+  await startRecording(page);
+  const t0 = await page.evaluate(() => performance.now());
+  await cdp.send('Profiler.start');
+  await page.evaluate(() => window.__probe.ss.startSlideshow());
+  await page.waitForTimeout(24000);
+  await page.evaluate(() => window.__probe.ss.stopSlideshow());
+  const { profile } = await cdp.send('Profiler.stop');
+  const { samples } = await stopRecording(page);
+
+  const windows = [];
+  for (let i = 1; i < samples.length; i += 1) {
+    if (samples[i].t - samples[i - 1].t > 200 && samples[i].opacity >= 0.05) windows.push([samples[i - 1].t, samples[i].t]);
+  }
+  const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  const parent = new Map();
+  profile.nodes.forEach((n) => (n.children || []).forEach((c) => parent.set(c, n.id)));
+  const label = (n) => `${n.callFrame.functionName || '(anon)'}@${n.callFrame.url.split('/').pop().split('?')[0]}:${n.callFrame.lineNumber}`;
+  const stacks = new Map();
+  let idle = 0; let total = 0; let t = t0;
+  profile.samples.forEach((id, i) => {
+    const d = (profile.timeDeltas[i] || 0) / 1000;
+    t += d;
+    if (!windows.some(([a, b]) => t >= a && t <= b)) return;
+    total += d;
+    const n = byId.get(id);
+    if (['(idle)', '(program)', '(root)'].includes(n.callFrame.functionName)) { idle += d; return; }
+    const chain = [];
+    let cursor = n;
+    while (cursor && chain.length < 7) {
+      if (cursor.callFrame.functionName !== '(root)') chain.push(label(cursor));
+      cursor = byId.get(parent.get(cursor.id));
+    }
+    const key = chain.join(' < ');
+    stacks.set(key, (stacks.get(key) || 0) + d);
+  });
+  console.log(`FREEZE windows: ${windows.map(([a, b]) => Math.round(b - a)).join(', ')}; total ${Math.round(total)}ms, idle/program ${Math.round(idle)}ms`);
+  console.log([...stacks.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, ms]) => `STACK ${Math.round(ms)}ms  ${k}`).join('\n'));
+});
+
+test('trace browser and GPU during tradeoff freezes', async ({ page, context, browser }) => {
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.ss = await import('/src/slideshowController.js');
+    probe.useStore.getState().setSlideshowContinuousMode(true);
+    probe.useStore.getState().setSlideshowDuration(3);
+  });
+
+  const freezesOf = (samples) => {
+    const out = [];
+    for (let i = 1; i < samples.length; i += 1) {
+      if (samples[i].t - samples[i - 1].t > 200 && samples[i].opacity >= 0.05) out.push([samples[i - 1].t, samples[i].t]);
+    }
+    return out;
+  };
+  const play = async (ms = 24000) => {
+    await startRecording(page);
+    await page.evaluate(() => window.__probe.ss.startSlideshow());
+    await page.waitForTimeout(ms);
+    await page.evaluate(() => window.__probe.ss.stopSlideshow());
+    return (await stopRecording(page)).samples;
+  };
+
+  await browser.startTracing(page, {
+    categories: ['toplevel', 'devtools.timeline', 'disabled-by-default-devtools.timeline', 'blink.user_timing', 'cc', 'viz', 'gpu', 'gpu.service', 'gpu.decoder', 'gpu.angle', 'disabled-by-default-gpu.service', 'disabled-by-default-gpu.decoder', '__metadata'],
+  });
+  const t0 = await page.evaluate(() => { performance.mark('__regressT0'); return performance.now(); });
+  const samples = await play();
+  const trace = JSON.parse((await browser.stopTracing()).toString('utf8'));
+
+  const windows = freezesOf(samples);
+  const events = trace.traceEvents;
+  const mark = events.find((e) => e.name === '__regressT0');
+  const toTraceUs = (ms) => mark.ts + (ms - t0) * 1000;
+  const names = new Map();
+  const procs = new Map();
+  events.forEach((e) => {
+    if (e.ph !== 'M') return;
+    if (e.name === 'thread_name') names.set(`${e.pid}:${e.tid}`, e.args.name);
+    if (e.name === 'process_name') procs.set(e.pid, e.args.name);
+  });
+  const threadOf = (e) => `${procs.get(e.pid) || e.pid}/${names.get(`${e.pid}:${e.tid}`) || e.tid}`;
+
+  console.log(`TRACE freezes ${windows.map(([a, b]) => Math.round(b - a)).join(', ')}; events ${events.length}`);
+  windows.slice(0, 4).forEach(([a, b], w) => {
+    const start = toTraceUs(a);
+    const end = toTraceUs(b);
+    const hits = events
+      .filter((e) => e.ph === 'X' && e.dur && e.ts < end && e.ts + e.dur > start)
+      .map((e) => ({ overlap: (Math.min(end, e.ts + e.dur) - Math.max(start, e.ts)) / 1000, name: e.name, thread: threadOf(e) }))
+      .filter((h) => h.overlap >= 40)
+      .sort((x, y) => y.overlap - x.overlap);
+    const seen = new Set();
+    const lines = [];
+    for (const h of hits) {
+      const key = `${h.thread}|${h.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(`  ${String(Math.round(h.overlap)).padStart(5)}ms  ${h.thread}  ${h.name}`);
+      if (lines.length >= 16) break;
+    }
+    console.log(`TRACE window ${w} (${Math.round(b - a)}ms)\n${lines.join('\n')}`);
+  });
+
+  const summarize = (label, s) => {
+    const f = freezesOf(s).map(([a, b]) => Math.round(b - a));
+    console.log(`GLOW ${label.padEnd(12)} freezes ${f.length}  [${f.join(' ')}]`);
+  };
+  const glow = (on) => page.evaluate((v) => {
+    document.getElementById('__nobg')?.remove();
+    if (v) return;
+    const s = document.createElement('style');
+    s.id = '__nobg';
+    s.textContent = '.bg-image-container{display:none!important}';
+    document.head.appendChild(s);
+  }, on);
+  for (let round = 1; round <= 2; round += 1) {
+    await waitForSettled(page);
+    await waitForNeighbours(page);
+    await glow(true);
+    summarize(`on #${round}`, await play());
+    await waitForSettled(page);
+    await waitForNeighbours(page);
+    await glow(false);
+    summarize(`off #${round}`, await play());
+  }
+  await glow(true);
+});
+
+test('correlate freezes with neighbour arrival and GPU uploads', async ({ page, context }) => {
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.ss = await import('/src/slideshowController.js');
+    probe.useStore.getState().setSlideshowContinuousMode(true);
+    probe.useStore.getState().setSlideshowDuration(3);
+    const gl = probe.v.renderer.getContext();
+    probe.uploads = [];
+    for (const name of ['texImage3D', 'texSubImage3D', 'texStorage3D']) {
+      const original = gl[name].bind(gl);
+      gl[name] = (...args) => {
+        if (probe.rec) probe.uploads.push({ t: performance.now(), name, w: args[name === 'texStorage3D' ? 2 : name === 'texImage3D' ? 3 : 5], h: args[name === 'texStorage3D' ? 3 : name === 'texImage3D' ? 4 : 6], d: args[name === 'texStorage3D' ? 4 : name === 'texImage3D' ? 5 : 7] });
+        return original(...args);
+      };
+    }
+    probe.arrivals = [];
+    const known = new Set(probe.sm.getSplatCache().keys());
+    const watch = () => {
+      probe.sm.getSplatCache().forEach((_, key) => {
+        if (!known.has(key)) { known.add(key); if (probe.rec) probe.arrivals.push(performance.now()); }
+      });
+      requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+  });
+  await startRecording(page);
+  await page.evaluate(() => window.__probe.ss.startSlideshow());
+  await page.waitForTimeout(30000);
+  await page.evaluate(() => window.__probe.ss.stopSlideshow());
+  const { samples } = await stopRecording(page);
+  const { uploads, arrivals } = await page.evaluate(() => ({ uploads: window.__probe.uploads, arrivals: window.__probe.arrivals }));
+  const last = (arr, t) => arr.filter((x) => x <= t).at(-1);
+  const swaps = samples.filter((s, i) => i && s.mesh !== samples[i - 1].mesh).map((s) => s.t);
+  console.log(`CORR arrivals ${arrivals.length}, swaps ${swaps.length}, uploads ${uploads.length}: ${[...new Set(uploads.map((u) => `${u.name} ${u.w}x${u.h}x${u.d}`))].slice(0, 6).join(' | ')}`);
+  for (let i = 1; i < samples.length; i += 1) {
+    const gap = samples[i].t - samples[i - 1].t;
+    if (gap <= 200 || samples[i].opacity < 0.05) continue;
+    const start = samples[i - 1].t;
+    const a = last(arrivals, samples[i].t);
+    const u = last(uploads.map((x) => x.t), samples[i].t);
+    const s = last(swaps, start);
+    console.log(`CORR freeze ${Math.round(gap)}ms: ${s === undefined ? '?' : Math.round(start - s)}ms after swap, ${a === undefined ? '?' : Math.round(start - a)}ms after neighbour arrived, ${u === undefined ? '?' : Math.round(start - u)}ms after 3D upload`);
+  }
+});
+
+test('frame gate on and off during playback', async ({ page, context }) => {
+  test.setTimeout(900_000);
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.ss = await import('/src/slideshowController.js');
+    const { composer, renderer, camera } = probe.v;
+    const realRender = composer.render.bind(composer);
+    probe.frames = [];
+    probe.frameRec = false;
+    composer.render = (...args) => {
+      const out = realRender(...args);
+      if (!probe.frameRec) return out;
+      const gl = renderer.getContext();
+      const frame = {
+        t: performance.now(),
+        pos: camera.position.toArray(),
+        mesh: probe.v.currentMesh?.uuid ?? null,
+        op: parseFloat(getComputedStyle(probe.el).opacity),
+        gpuMs: null,
+      };
+      probe.frames.push(frame);
+      const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      const poll = () => {
+        if (gl.clientWaitSync(fence, 0, 0) === gl.TIMEOUT_EXPIRED) { setTimeout(poll, 0); return; }
+        frame.gpuMs = performance.now() - frame.t;
+        gl.deleteSync(fence);
+      };
+      setTimeout(poll, 0);
+      return out;
+    };
+  });
+
+  const q = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
+  const run = async (label, gate, continuous) => {
+    await waitForSettled(page);
+    await waitForNeighbours(page);
+    await page.evaluate(({ g, c }) => {
+      const probe = window.__probe;
+      probe.v.setFrameGateEnabled(g);
+      probe.useStore.getState().setSlideshowContinuousMode(c);
+      probe.useStore.getState().setSlideshowDuration(3);
+      probe.frames = [];
+      probe.frameRec = true;
+      probe.ss.startSlideshow();
+    }, { g: gate, c: continuous });
+    await page.waitForTimeout(24000);
+    await page.evaluate(() => { window.__probe.frameRec = false; window.__probe.ss.stopSlideshow(); });
+    await page.waitForTimeout(1500);
+    const frames = await page.evaluate(() => window.__probe.frames);
+    const pairs = frames.slice(1).map((f, i) => ({ f, prev: frames[i] })).filter(({ f, prev }) => f.op >= 0.5 && f.mesh === prev.mesh);
+    const gaps = pairs.map(({ f, prev }) => f.t - prev.t).sort((a, b) => a - b);
+    const steps = pairs.map(({ f, prev }) => Math.hypot(f.pos[0] - prev.pos[0], f.pos[1] - prev.pos[1], f.pos[2] - prev.pos[2])).filter((s) => s > 1e-6).sort((a, b) => a - b);
+    const gpu = pairs.map(({ f }) => f.gpuMs).filter((v) => v !== null).sort((a, b) => a - b);
+    const span = gaps.reduce((a, b) => a + b, 0);
+    const mean = gaps.reduce((a, b) => a + b, 0) / (gaps.length || 1);
+    const stdev = Math.sqrt(gaps.reduce((a, b) => a + (b - mean) ** 2, 0) / (gaps.length || 1));
+    console.log(`GATE ${label.padEnd(30)} fps ${(gaps.length / span * 1000).toFixed(1).padStart(5)}  interval p50 ${q(gaps, 0.5).toFixed(0).padStart(3)} p95 ${q(gaps, 0.95).toFixed(0).padStart(3)} p99 ${q(gaps, 0.99).toFixed(0).padStart(3)} stdev ${stdev.toFixed(1).padStart(5)}  camStep p95/p50 ${(q(steps, 0.95) / (q(steps, 0.5) || 1)).toFixed(2)}  gpuDone p50 ${q(gpu, 0.5).toFixed(0).padStart(3)} p95 ${q(gpu, 0.95).toFixed(0).padStart(3)}`);
+  };
+
+  for (let round = 1; round <= 2; round += 1) {
+    await run(`#${round} continuous gate off`, false, true);
+    await run(`#${round} continuous gate on`, true, true);
+    await run(`#${round} non-continuous gate off`, false, false);
+    await run(`#${round} non-continuous gate on`, true, false);
+  }
+  await page.evaluate(() => window.__probe.v.setFrameGateEnabled(false));
+});
+
+test('fade layer variants', async ({ page, context }) => {
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.ss = await import('/src/slideshowController.js');
+    probe.useStore.getState().setSlideshowContinuousMode(true);
+    probe.useStore.getState().setSlideshowDuration(3);
+  });
+  const css = (text) => page.evaluate((t) => {
+    document.getElementById('__variant')?.remove();
+    if (!t) return;
+    const s = document.createElement('style');
+    s.id = '__variant';
+    s.textContent = t;
+    document.head.appendChild(s);
+  }, text);
+  const run = async (label, text) => {
+    await waitForSettled(page);
+    await waitForNeighbours(page);
+    await css(text);
+    await startRecording(page);
+    await page.evaluate(() => window.__probe.ss.startSlideshow());
+    await page.waitForTimeout(24000);
+    await page.evaluate(() => window.__probe.ss.stopSlideshow());
+    const { samples } = await stopRecording(page);
+    const out = [];
+    let lastReveal = null;
+    for (let i = 1; i < samples.length; i += 1) {
+      const gap = samples[i].t - samples[i - 1].t;
+      if (samples[i - 1].opacity < 0.05 && samples[i].opacity >= 0.05) lastReveal = samples[i].t;
+      if (gap > 200 && samples[i].opacity >= 0.05) out.push(`${Math.round(gap)}@${lastReveal ? Math.round(samples[i - 1].t - lastReveal) : '?'}/op${samples[i].opacity.toFixed(2)}`);
+    }
+    console.log(`VARIANT ${label.padEnd(22)} ${String(out.length).padStart(2)} freezes  [gap@afterReveal/opacity] ${out.join(' ')}`);
+  };
+  const variants = [
+    ['default', ''],
+    ['never fully zero', '.viewer.slide-out{opacity:.02!important}'],
+    ['will-change', '#viewer,#viewer canvas{will-change:opacity}'],
+  ];
+  for (let round = 1; round <= 2; round += 1) {
+    for (const [label, text] of variants) await run(`#${round} ${label}`, text);
+  }
+  await css('');
+});

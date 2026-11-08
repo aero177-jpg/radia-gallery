@@ -74,6 +74,7 @@ const getPersistedJson = (key, fallback = null) => {
 const QUALITY_PRESET_KEY = 'qualityPreset';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
+const DEBUG_FRAME_GATE_KEY = 'debugFrameGateEnabled';
 const DEBUG_RUNTIME_LOD_KEY = 'debugRuntimeLodEnabled';
 const DEBUG_SPLAT_SH_LEVEL_KEY = 'debugSplatShLevel';
 const DEBUG_LOD_SPLAT_COUNT_KEY = 'debugLodSplatCount';
@@ -302,6 +303,7 @@ const persistedQualityPreset = getPersistedString(
 );
 const persistedCustomStdDev = getPersistedNumber(DEBUG_SPARK_STDDEV_KEY, Math.sqrt(5));
 const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
+const persistedFrameGate = getPersistedBoolean(DEBUG_FRAME_GATE_KEY, true);
 const persistedRuntimeLod = getPersistedBoolean(DEBUG_RUNTIME_LOD_KEY, false);
 const persistedSplatShLevel = getPersistedNumber(DEBUG_SPLAT_SH_LEVEL_KEY, 3);
 const persistedLodSplatCount = getPersistedNumber(DEBUG_LOD_SPLAT_COUNT_KEY, 500000);
@@ -472,6 +474,7 @@ export const useStore = create(
   debugLoadingMode: false,
   debugSettingsExpanded: false,
   debugFpsLimitEnabled: initialQuality.fpsLimit,
+  debugFrameGateEnabled: persistedFrameGate,
   debugSparkMaxStdDev: initialQuality.stdDev,
   debugRuntimeLodEnabled: persistedRuntimeLod,
   debugSplatShLevel: Math.max(0, Math.min(3, Math.round(persistedSplatShLevel))),
@@ -885,6 +888,19 @@ export const useStore = create(
       }
     }
     set({ debugFpsLimitEnabled: enabled });
+  },
+
+  /** Enables/disables keeping at most one frame queued on the GPU */
+  setDebugFrameGateEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(DEBUG_FRAME_GATE_KEY, String(value));
+      } catch (err) {
+        console.warn('[Store] Failed to persist debugFrameGateEnabled', err);
+      }
+    }
+    set({ debugFrameGateEnabled: value });
   },
 
   /** Sets Spark splat maxStdDev (rendering width) */

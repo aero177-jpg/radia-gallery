@@ -54,6 +54,7 @@ const QUALITY_PRESET_KEY = 'qualityPreset';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
 const DEBUG_PERFORMANCE_KEYS = [
+  'debugFrameGateEnabled',
   'debugRuntimeLodEnabled',
   'debugSplatShLevel',
   'debugLodSplatCount',

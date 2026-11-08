@@ -75,6 +75,47 @@ const GL_ERROR_CHECK_INTERVAL_MS = 4000;
 const GL_ERROR_STREAK_THRESHOLD = 3;
 const CONTEXT_LOSS_RECOVERY_DELAY_MS = 1500;
 
+// On by default (Debug Settings toggle; ?frameGate forces it on at load): keep at most one
+// frame queued on the GPU, so the camera pose is sampled when a frame can actually start.
+const FRAME_FENCE_TIMEOUT_MS = 1000;
+const frameGateForcedByUrl = new URLSearchParams(window.location.search).has('frameGate');
+let frameGateEnabled = frameGateForcedByUrl;
+let frameFence = null;
+let frameFenceGl = null;
+let frameFenceAt = 0;
+
+const releaseFrameFence = () => {
+  if (frameFence && !frameFenceGl.isContextLost()) frameFenceGl.deleteSync(frameFence);
+  frameFence = null;
+  frameFenceGl = null;
+};
+
+// Polled once per rAF with a zero timeout, so it never blocks or spins the main thread.
+const isGpuReadyForFrame = (now) => {
+  if (!frameFence) return true;
+  const gl = renderer.getContext();
+  const finished = gl !== frameFenceGl
+    || gl.isContextLost()
+    || now - frameFenceAt > FRAME_FENCE_TIMEOUT_MS
+    || gl.clientWaitSync(frameFence, 0, 0) !== gl.TIMEOUT_EXPIRED;
+  if (finished) releaseFrameFence();
+  return finished;
+};
+
+const markFrameSubmitted = (now) => {
+  releaseFrameFence();
+  const gl = renderer.getContext();
+  frameFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  frameFenceGl = frameFence ? gl : null;
+  frameFenceAt = now;
+  gl.flush();
+};
+
+export const setFrameGateEnabled = (enabled) => {
+  frameGateEnabled = Boolean(enabled);
+  if (!frameGateEnabled) releaseFrameFence();
+};
+
 const updateFpsOverlayVisibility = () => {
   if (fpsContainer) {
     fpsContainer.style.display = currentMesh && (showAppFps || showRenderStats) ? 'block' : 'none';
@@ -540,6 +581,11 @@ export const initViewer = (viewerEl) => {
       fpsLimitEnabled = Boolean(enabled);
       requestRender();
     });
+    setFrameGateEnabled(frameGateForcedByUrl || useStore.getState().debugFrameGateEnabled);
+    useStore.subscribe((s) => s.debugFrameGateEnabled, (enabled) => {
+      setFrameGateEnabled(enabled);
+      requestRender();
+    });
   }).catch(() => {});
 
   // FPS overlay
@@ -619,6 +665,11 @@ export const startRenderLoop = () => {
     const controlsNeedUpdate = controls.update();
 
     if (needsRender || controlsNeedUpdate) {
+      if (frameGateEnabled && !isGpuReadyForFrame(now)) {
+        // Keep the frame owed: controls.update() has already consumed its change event.
+        needsRender = true;
+        return;
+      }
       try {
         if (stereoEnabled && stereoCamera) {
           renderStereo();
@@ -629,6 +680,7 @@ export const startRenderLoop = () => {
         void recoverViewerFromGlFault(error?.message || 'render exception');
         return;
       }
+      if (frameGateEnabled) markFrameSubmitted(now);
       checkForGlErrors(now);
       needsRender = false;
       recordRenderedFrame(now);

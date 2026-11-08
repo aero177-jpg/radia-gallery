@@ -38,6 +38,8 @@ function DebugSettings() {
   const setDisableTransparentUi = useStore((state) => state.setDisableTransparentUi);
   const debugFpsLimitEnabled = useStore((state) => state.debugFpsLimitEnabled);
   const setDebugFpsLimitEnabled = useStore((state) => state.setDebugFpsLimitEnabled);
+  const debugFrameGateEnabled = useStore((state) => state.debugFrameGateEnabled);
+  const setDebugFrameGateEnabled = useStore((state) => state.setDebugFrameGateEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
   const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
@@ -684,6 +686,18 @@ function DebugSettings() {
               type="checkbox"
               checked={debugFpsLimitEnabled}
               onChange={handleFpsLimitToggle}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Frame gate (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugFrameGateEnabled}
+              onChange={(e) => setDebugFrameGateEnabled(e.target.checked)}
             />
             <span class="switch-track" aria-hidden="true" />
           </label>
