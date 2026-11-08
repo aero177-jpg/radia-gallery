@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:regress": "playwright test --config tests/regress/playwright.config.mjs"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +29,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@vitejs/plugin-basic-ssl": "^2.1.0",
     "vite-plugin-pwa": "^1.2.0"
   }
