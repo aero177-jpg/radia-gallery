@@ -77,6 +77,9 @@ const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
 const DEBUG_FRAME_GATE_KEY = 'debugFrameGateEnabled';
 const DEBUG_SPLAT_BATCHING_KEY = 'debugSplatBatchingEnabled';
 const DEBUG_CPU_DEPTH_SORT_KEY = 'debugCpuDepthSortEnabled';
+const DEBUG_MOTION_PIXEL_BUDGET_KEY = 'debugMotionPixelBudgetEnabled';
+const DEBUG_MOTION_PIXEL_BUDGET_MP_KEY = 'debugMotionPixelBudgetMp';
+const DEBUG_RARE_GL_ERROR_CHECKS_KEY = 'debugRareGlErrorChecksEnabled';
 const DEBUG_RUNTIME_LOD_KEY = 'debugRuntimeLodEnabled';
 const DEBUG_SPLAT_SH_LEVEL_KEY = 'debugSplatShLevel';
 const DEBUG_LOD_SPLAT_COUNT_KEY = 'debugLodSplatCount';
@@ -308,6 +311,9 @@ const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
 const persistedFrameGate = getPersistedBoolean(DEBUG_FRAME_GATE_KEY, true);
 const persistedSplatBatching = getPersistedBoolean(DEBUG_SPLAT_BATCHING_KEY, true);
 const persistedCpuDepthSort = getPersistedBoolean(DEBUG_CPU_DEPTH_SORT_KEY, true);
+const persistedMotionPixelBudget = getPersistedBoolean(DEBUG_MOTION_PIXEL_BUDGET_KEY, false);
+const persistedMotionPixelBudgetMp = getPersistedNumber(DEBUG_MOTION_PIXEL_BUDGET_MP_KEY, 1);
+const persistedRareGlErrorChecks = getPersistedBoolean(DEBUG_RARE_GL_ERROR_CHECKS_KEY, true);
 const persistedRuntimeLod = getPersistedBoolean(DEBUG_RUNTIME_LOD_KEY, false);
 const persistedSplatShLevel = getPersistedNumber(DEBUG_SPLAT_SH_LEVEL_KEY, 3);
 const persistedLodSplatCount = getPersistedNumber(DEBUG_LOD_SPLAT_COUNT_KEY, 500000);
@@ -481,6 +487,9 @@ export const useStore = create(
   debugFrameGateEnabled: persistedFrameGate,
   debugSplatBatchingEnabled: persistedSplatBatching,
   debugCpuDepthSortEnabled: persistedCpuDepthSort,
+  debugMotionPixelBudgetEnabled: persistedMotionPixelBudget,
+  debugMotionPixelBudgetMp: persistedMotionPixelBudgetMp,
+  debugRareGlErrorChecksEnabled: persistedRareGlErrorChecks,
   debugSparkMaxStdDev: initialQuality.stdDev,
   debugRuntimeLodEnabled: persistedRuntimeLod,
   debugSplatShLevel: Math.max(0, Math.min(3, Math.round(persistedSplatShLevel))),
@@ -933,6 +942,39 @@ export const useStore = create(
       }
     }
     set({ debugCpuDepthSortEnabled: value });
+  },
+
+  /** Enables/disables capping rendered pixels while the camera moves */
+  setDebugMotionPixelBudgetEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(DEBUG_MOTION_PIXEL_BUDGET_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugMotionPixelBudgetEnabled', err);
+    }
+    set({ debugMotionPixelBudgetEnabled: value });
+  },
+
+  /** Sets the rendered pixel cap, in megapixels, used while the camera moves */
+  setDebugMotionPixelBudgetMp: (megapixels) => {
+    const value = Math.max(0.2, Number(megapixels) || 1);
+    try {
+      window.localStorage?.setItem(DEBUG_MOTION_PIXEL_BUDGET_MP_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugMotionPixelBudgetMp', err);
+    }
+    set({ debugMotionPixelBudgetMp: value });
+  },
+
+  /** Chooses rare (4 s) or frequent (500 ms) GL error checks */
+  setDebugRareGlErrorChecksEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(DEBUG_RARE_GL_ERROR_CHECKS_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugRareGlErrorChecksEnabled', err);
+    }
+    set({ debugRareGlErrorChecksEnabled: value });
   },
 
   /** Sets Spark splat maxStdDev (rendering width) */

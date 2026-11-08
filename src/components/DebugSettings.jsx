@@ -44,6 +44,12 @@ function DebugSettings() {
   const setDebugSplatBatchingEnabled = useStore((state) => state.setDebugSplatBatchingEnabled);
   const debugCpuDepthSortEnabled = useStore((state) => state.debugCpuDepthSortEnabled);
   const setDebugCpuDepthSortEnabled = useStore((state) => state.setDebugCpuDepthSortEnabled);
+  const debugMotionPixelBudgetEnabled = useStore((state) => state.debugMotionPixelBudgetEnabled);
+  const setDebugMotionPixelBudgetEnabled = useStore((state) => state.setDebugMotionPixelBudgetEnabled);
+  const debugMotionPixelBudgetMp = useStore((state) => state.debugMotionPixelBudgetMp);
+  const setDebugMotionPixelBudgetMp = useStore((state) => state.setDebugMotionPixelBudgetMp);
+  const debugRareGlErrorChecksEnabled = useStore((state) => state.debugRareGlErrorChecksEnabled);
+  const setDebugRareGlErrorChecksEnabled = useStore((state) => state.setDebugRareGlErrorChecksEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
   const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
@@ -729,6 +735,46 @@ function DebugSettings() {
             />
             <span class="switch-track" aria-hidden="true" />
           </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Rare GL error checks (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugRareGlErrorChecksEnabled}
+              onChange={(e) => setDebugRareGlErrorChecksEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Motion pixel budget (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugMotionPixelBudgetEnabled}
+              onChange={(e) => setDebugMotionPixelBudgetEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Budget (MP)</span>
+          <div class="control-track">
+            <input
+              type="range"
+              min="0.4"
+              max="2.5"
+              step="0.1"
+              disabled={!debugMotionPixelBudgetEnabled}
+              value={debugMotionPixelBudgetMp}
+              onInput={(e) => setDebugMotionPixelBudgetMp(e.target.value)}
+            />
+            <span class="control-value">{debugMotionPixelBudgetMp.toFixed(1)}</span>
+          </div>
         </div>
 
         <div class="control-row">

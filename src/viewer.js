@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { setSplatBatching } from "./splatBatching.js";
 import { setCpuDepthSort } from "./splatCpuSort.js";
+import { getPendingPixelRatio, setMotionPixelBudget } from "./motionPixelBudget.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -74,6 +75,8 @@ let glContextLost = false;
 // gl.getError() blocks until queued GPU work finishes. At 500 ms this stole about 2 s of
 // main-thread time per 24 s of image-mode playback on integrated GPUs, so keep it rare.
 const GL_ERROR_CHECK_INTERVAL_MS = 4000;
+const GL_ERROR_CHECK_INTERVAL_FREQUENT_MS = 500;
+let glErrorCheckIntervalMs = GL_ERROR_CHECK_INTERVAL_MS;
 const GL_ERROR_STREAK_THRESHOLD = 3;
 const CONTEXT_LOSS_RECOVERY_DELAY_MS = 1500;
 
@@ -249,7 +252,7 @@ const recoverViewerFromGlFault = async (reason = 'WebGL fault') => {
 
 const checkForGlErrors = (now = performance.now()) => {
   if (!renderer || glContextLost || autoRecoveringFromGlError) return;
-  if (now - lastGlErrorCheckAt < GL_ERROR_CHECK_INTERVAL_MS) return;
+  if (now - lastGlErrorCheckAt < glErrorCheckIntervalMs) return;
 
   lastGlErrorCheckAt = now;
   const gl = renderer.getContext?.();
@@ -598,6 +601,18 @@ export const initViewer = (viewerEl) => {
       setCpuDepthSort(spark, enabled);
       requestRender();
     });
+    const applyMotionPixelBudget = () => {
+      const state = useStore.getState();
+      setMotionPixelBudget(state.debugMotionPixelBudgetEnabled, state.debugMotionPixelBudgetMp);
+      requestRender();
+    };
+    applyMotionPixelBudget();
+    useStore.subscribe((s) => `${s.debugMotionPixelBudgetEnabled}:${s.debugMotionPixelBudgetMp}`, applyMotionPixelBudget);
+    const applyGlErrorInterval = (rare) => {
+      glErrorCheckIntervalMs = rare ? GL_ERROR_CHECK_INTERVAL_MS : GL_ERROR_CHECK_INTERVAL_FREQUENT_MS;
+    };
+    applyGlErrorInterval(useStore.getState().debugRareGlErrorChecksEnabled);
+    useStore.subscribe((s) => s.debugRareGlErrorChecksEnabled, applyGlErrorInterval);
   }).catch(() => {});
 
   // FPS overlay
@@ -675,6 +690,8 @@ export const startRenderLoop = () => {
 
     // Always update controls for damping, but only render if needed
     const controlsNeedUpdate = controls.update();
+    const pendingPixelRatio = getPendingPixelRatio(renderer, camera, now, stereoEnabled);
+    if (pendingPixelRatio !== null) needsRender = true;
 
     if (needsRender || controlsNeedUpdate) {
       if (frameGateEnabled && !isGpuReadyForFrame(now)) {
@@ -683,6 +700,7 @@ export const startRenderLoop = () => {
         return;
       }
       try {
+        if (pendingPixelRatio !== null) renderer.setPixelRatio(pendingPixelRatio);
         if (stereoEnabled && stereoCamera) {
           renderStereo();
         } else {

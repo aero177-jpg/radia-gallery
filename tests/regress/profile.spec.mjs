@@ -997,6 +997,83 @@ test('cpu depth sort against gpu readback', async ({ page, context }) => {
   await page.evaluate(() => window.__probe.cs.setCpuDepthSort(window.__probe.v.spark, false));
 });
 
+test('motion pixel budget by image shape', async ({ page, context }) => {
+  test.setTimeout(900_000);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  await page.evaluate(() => {
+    const p = window.__probe;
+    const { composer, renderer } = p.v;
+    p.useStore.getState().setSlideshowContinuousMode(false);
+    p.frames = [];
+    p.resizeMs = [];
+    const realRatio = renderer.setPixelRatio.bind(renderer);
+    renderer.setPixelRatio = (r) => { const t = performance.now(); realRatio(r); p.resizeMs.push(performance.now() - t); };
+    const realRender = composer.render.bind(composer);
+    composer.render = (...a) => { const o = realRender(...a); p.frames.push({ t: performance.now(), m: p.v.currentMesh?.uuid, op: parseFloat(getComputedStyle(p.el).opacity), w: renderer.domElement.width, h: renderer.domElement.height }); return o; };
+  });
+  const count = await page.evaluate(() => Math.min(window.__probe.useStore.getState().assets.length, 12));
+  const q = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
+  const pass = async (label, on) => {
+    await page.evaluate((v) => { const s = window.__probe.useStore.getState(); s.setDebugMotionPixelBudgetEnabled(v); s.setDebugMotionPixelBudgetMp(1); window.__probe.resizeMs = []; }, on);
+    await waitForSettled(page);
+    const groups = { wide: [], vertical: [] };
+    let moving = { wide: 0, vertical: 0 };
+    for (let i = 0; i < count; i += 1) {
+      await page.evaluate(() => { window.__probe.frames = []; });
+      await next(page);
+      await waitForSettled(page);
+      await waitForNeighbours(page);
+      const r = await page.evaluate(() => {
+        const p = window.__probe;
+        const { clientWidth: cw, clientHeight: ch } = p.v.renderer.domElement;
+        const f = p.frames;
+        const list = f.slice(1).map((x, n) => ({ x, d: x.t - f[n].t })).filter(({ x }) => x.op >= 0.5 && x.m === p.v.currentMesh?.uuid);
+        return { aspect: cw / ch, gaps: list.map((v) => v.d), minPixels: Math.min(...list.map(({ x }) => x.w * x.h)) };
+      });
+      const key = r.aspect > 1 ? 'wide' : 'vertical';
+      groups[key].push(...r.gaps);
+      moving[key] = moving[key] ? Math.min(moving[key], r.minPixels) : r.minPixels;
+    }
+    const resize = await page.evaluate(() => window.__probe.resizeMs);
+    for (const key of ['wide', 'vertical']) {
+      const g = groups[key].sort((a, b) => a - b);
+      const span = g.reduce((a, b) => a + b, 0);
+      console.log('BUDGET ' + (label + ' ' + key).padEnd(26) + ' fps ' + (g.length / span * 1000).toFixed(1).padStart(5) + '  p50 ' + q(g, 0.5).toFixed(0).padStart(3) + ' p95 ' + q(g, 0.95).toFixed(0).padStart(3) + ' max ' + q(g, 1).toFixed(0).padStart(4) + '  frames ' + String(g.length).padStart(3) + '  smallest ' + (moving[key] / 1e6).toFixed(2) + ' MP');
+    }
+    const sorted = [...resize].sort((a, b) => a - b);
+    console.log('BUDGET ' + label + ' setPixelRatio calls ' + resize.length + ' median ' + q(sorted, 0.5).toFixed(2) + ' ms max ' + q(sorted, 1).toFixed(2) + ' ms');
+  };
+  for (let round = 1; round <= 2; round += 1) {
+    await pass('#' + round + ' off', false);
+    await pass('#' + round + ' on', true);
+  }
+  // A still camera restores full resolution, and framing must match the budgeted frame.
+  const framing = await page.evaluate(async () => {
+    const p = window.__probe;
+    const { renderer } = p.v;
+    await new Promise((r) => setTimeout(r, 500));
+    const sample = () => {
+      p.v.forceRenderNow();
+      const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+      const x = c.getContext('2d'); x.drawImage(renderer.domElement, 0, 0, 64, 64);
+      return x.getImageData(0, 0, 64, 64).data;
+    };
+    const fullSize = [renderer.domElement.width, renderer.domElement.height];
+    const a = sample();
+    const ratio = renderer.getPixelRatio();
+    renderer.setPixelRatio(ratio * 0.6);
+    const b = sample();
+    renderer.setPixelRatio(ratio);
+    let sum = 0;
+    for (let i = 0; i < a.length; i += 4) sum += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+    return { fullSize, meanChannelDiff: +(sum / (a.length * 0.75)).toFixed(2) };
+  });
+  console.log('BUDGET framing ' + JSON.stringify(framing));
+  await page.evaluate(() => window.__probe.useStore.getState().setDebugMotionPixelBudgetEnabled(false));
+});
+
 test('fade layer variants', async ({ page, context }) => {
   await cacheDemoAssets(context);
   await openDemo(page, DEMOS.image);
