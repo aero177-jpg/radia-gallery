@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { setSplatBatching } from "./splatBatching.js";
+import { setCpuDepthSort } from "./splatCpuSort.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -590,6 +591,11 @@ export const initViewer = (viewerEl) => {
     setSplatBatching(spark, useStore.getState().debugSplatBatchingEnabled);
     useStore.subscribe((s) => s.debugSplatBatchingEnabled, (enabled) => {
       setSplatBatching(spark, enabled);
+      requestRender();
+    });
+    setCpuDepthSort(spark, useStore.getState().debugCpuDepthSortEnabled);
+    useStore.subscribe((s) => s.debugCpuDepthSortEnabled, (enabled) => {
+      setCpuDepthSort(spark, enabled);
       requestRender();
     });
   }).catch(() => {});

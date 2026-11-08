@@ -888,6 +888,115 @@ test('batched splat drawing', async ({ page, context }) => {
   console.log(`BATCH console errors ${errors.length}: ${errors.slice(0, 3).join(' | ')}`);
 });
 
+test('cpu depth sort against gpu readback', async ({ page, context }) => {
+  test.setTimeout(900_000);
+  await cacheDemoAssets(context);
+  await openDemo(page, DEMOS.image);
+  const check = () => page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.cs ??= await import('/src/splatCpuSort.js');
+    const { spark, renderer } = probe.v;
+    const proto = Object.getPrototypeOf(spark).readbackDepth;
+    const current = spark.current;
+    const numSplats = current.numSplats;
+    const size = Math.ceil(numSplats / 2048) * 2048;
+    const gpu = new Uint32Array(size);
+    await proto.call(spark, { current, renderer, numSplats, readback: gpu });
+    const cpu = new Float32Array(size);
+    const usable = await probe.cs.fillCpuDistancesForTest(spark, current, numSplats, cpu);
+    if (!usable) return { usable, mapping: current.mapping?.length, hasPacked: !!current.mapping?.[0]?.node?.packedSplats, ext: !!current.mapping?.[0]?.node?.extSplats };
+    const g = new Float32Array(gpu.buffer);
+    let infMismatch = 0; let compared = 0; let maxAbs = 0; let maxRel = 0; let inactive = 0; let inverted = 0;
+    const stride = Math.max(1, Math.floor(numSplats / 200000));
+    let prev = null;
+    for (let i = 0; i < numSplats; i += 1) {
+      const a = g[i]; const b = cpu[i];
+      if (!Number.isFinite(a) || !Number.isFinite(b)) { if (a !== b) infMismatch += 1; else inactive += 1; continue; }
+      compared += 1;
+      const d = Math.abs(a - b);
+      if (d > maxAbs) maxAbs = d;
+      if (d / Math.max(a, 1e-6) > maxRel) maxRel = d / Math.max(a, 1e-6);
+      if (i % stride === 0) { if (prev && (prev[0] - a) * (prev[1] - b) < 0 && Math.abs(prev[0] - a) > 1e-3) inverted += 1; prev = [a, b]; }
+    }
+    const times = [];
+    for (let i = 0; i < 25; i += 1) { const t = performance.now(); await probe.cs.fillCpuDistancesForTest(spark, current, numSplats, cpu); times.push(performance.now() - t); }
+    times.sort((a, b) => a - b);
+    return { usable, numSplats, compared, inactive, infMismatch, maxAbs, maxRel, inverted, fillMedianMs: +times[12].toFixed(2), fillMaxMs: +times[24].toFixed(2) };
+  });
+  console.log(`CPUSORT compare ${JSON.stringify(await check())}`);
+  await next(page); await waitForSettled(page); await waitForNeighbours(page);
+  console.log(`CPUSORT compare next image ${JSON.stringify(await check())}`);
+
+  await page.evaluate(async () => {
+    const probe = window.__probe;
+    probe.ss = await import('/src/slideshowController.js');
+    const { composer, renderer, spark } = probe.v;
+    const gl = renderer.getContext();
+    const realSub = gl.getBufferSubData.bind(gl);
+    probe.subMs = 0;
+    gl.getBufferSubData = (...args) => { const t = performance.now(); const out = realSub(...args); probe.subMs += performance.now() - t; return out; };
+    probe.sorts = 0;
+    probe.readMs = 0;
+    const realSet = Float32Array.prototype.set;
+    Float32Array.prototype.set = function timedSet(...args) {
+      if (args[0]?.length < 100000) return realSet.apply(this, args);
+      const t = performance.now();
+      const out = realSet.apply(this, args);
+      probe.readMs += performance.now() - t;
+      return out;
+    };
+    const worker = spark.sortWorker;
+    const realCall = worker.call.bind(worker);
+    worker.call = (name, ...args) => { if (name === 'sortSplats32') probe.sorts += 1; return realCall(name, ...args); };
+    probe.frames = [];
+    probe.frameRec = false;
+    const realRender = composer.render.bind(composer);
+    composer.render = (...args) => {
+      const out = realRender(...args);
+      if (probe.frameRec) probe.frames.push({ t: performance.now(), mesh: probe.v.currentMesh?.uuid ?? null, op: parseFloat(getComputedStyle(probe.el).opacity) });
+      return out;
+    };
+  });
+  const q = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
+  const play = async (label, cpu, continuous) => {
+    await page.evaluate((c) => {
+      const p = window.__probe;
+      const { spark } = p.v;
+      p.cs.setCpuDepthSort(spark, c);
+      const inner = spark.readbackDepth;
+      spark.readbackDepth = function timedReadback(args) {
+        const t = performance.now();
+        const out = inner.call(this, args);
+        p.readMs += performance.now() - t;
+        return out;
+      };
+    }, cpu);
+    await waitForSettled(page);
+    await waitForNeighbours(page);
+    await page.evaluate((c) => {
+      const p = window.__probe;
+      p.useStore.getState().setSlideshowContinuousMode(c);
+      p.useStore.getState().setSlideshowDuration(3);
+      p.frames = []; p.subMs = 0; p.sorts = 0; p.readMs = 0;
+      p.frameRec = true;
+      p.ss.startSlideshow();
+    }, continuous);
+    await page.waitForTimeout(22000);
+    const { frames, subMs, sorts, readMs } = await page.evaluate(() => { const p = window.__probe; p.frameRec = false; p.ss.stopSlideshow(); return { frames: p.frames, subMs: p.subMs, sorts: p.sorts, readMs: p.readMs }; });
+    const all = frames.slice(1).map((f, i) => ({ f, prev: frames[i] }));
+    const visible = all.filter(({ f, prev }) => f.op >= 0.5 && f.mesh === prev.mesh).map(({ f, prev }) => f.t - prev.t).sort((a, b) => a - b);
+    const span = visible.reduce((a, b) => a + b, 0);
+    console.log(`CPUSORT play ${label.padEnd(34)} fps ${(visible.length / span * 1000).toFixed(1).padStart(5)}  interval p50 ${q(visible, 0.5).toFixed(0).padStart(3)} p95 ${q(visible, 0.95).toFixed(0).padStart(3)} p99 ${q(visible, 0.99).toFixed(0).padStart(3)} max ${q(visible, 1).toFixed(0).padStart(4)}  getBufferSubData ${subMs.toFixed(0).padStart(5)}ms  readback call ${readMs.toFixed(0).padStart(5)}ms  sorts ${String(sorts).padStart(4)}`);
+  };
+  for (let round = 1; round <= 2; round += 1) {
+    await play(`#${round} continuous gpu readback`, false, true);
+    await play(`#${round} continuous cpu depth`, true, true);
+    await play(`#${round} non-continuous gpu readback`, false, false);
+    await play(`#${round} non-continuous cpu depth`, true, false);
+  }
+  await page.evaluate(() => window.__probe.cs.setCpuDepthSort(window.__probe.v.spark, false));
+});
+
 test('fade layer variants', async ({ page, context }) => {
   await cacheDemoAssets(context);
   await openDemo(page, DEMOS.image);

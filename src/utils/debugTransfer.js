@@ -56,6 +56,7 @@ const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
 const DEBUG_PERFORMANCE_KEYS = [
   'debugFrameGateEnabled',
   'debugSplatBatchingEnabled',
+  'debugCpuDepthSortEnabled',
   'debugRuntimeLodEnabled',
   'debugSplatShLevel',
   'debugLodSplatCount',

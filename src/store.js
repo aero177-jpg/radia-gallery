@@ -76,6 +76,7 @@ const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
 const DEBUG_FRAME_GATE_KEY = 'debugFrameGateEnabled';
 const DEBUG_SPLAT_BATCHING_KEY = 'debugSplatBatchingEnabled';
+const DEBUG_CPU_DEPTH_SORT_KEY = 'debugCpuDepthSortEnabled';
 const DEBUG_RUNTIME_LOD_KEY = 'debugRuntimeLodEnabled';
 const DEBUG_SPLAT_SH_LEVEL_KEY = 'debugSplatShLevel';
 const DEBUG_LOD_SPLAT_COUNT_KEY = 'debugLodSplatCount';
@@ -306,6 +307,7 @@ const persistedCustomStdDev = getPersistedNumber(DEBUG_SPARK_STDDEV_KEY, Math.sq
 const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
 const persistedFrameGate = getPersistedBoolean(DEBUG_FRAME_GATE_KEY, true);
 const persistedSplatBatching = getPersistedBoolean(DEBUG_SPLAT_BATCHING_KEY, true);
+const persistedCpuDepthSort = getPersistedBoolean(DEBUG_CPU_DEPTH_SORT_KEY, true);
 const persistedRuntimeLod = getPersistedBoolean(DEBUG_RUNTIME_LOD_KEY, false);
 const persistedSplatShLevel = getPersistedNumber(DEBUG_SPLAT_SH_LEVEL_KEY, 3);
 const persistedLodSplatCount = getPersistedNumber(DEBUG_LOD_SPLAT_COUNT_KEY, 500000);
@@ -478,6 +480,7 @@ export const useStore = create(
   debugFpsLimitEnabled: initialQuality.fpsLimit,
   debugFrameGateEnabled: persistedFrameGate,
   debugSplatBatchingEnabled: persistedSplatBatching,
+  debugCpuDepthSortEnabled: persistedCpuDepthSort,
   debugSparkMaxStdDev: initialQuality.stdDev,
   debugRuntimeLodEnabled: persistedRuntimeLod,
   debugSplatShLevel: Math.max(0, Math.min(3, Math.round(persistedSplatShLevel))),
@@ -917,6 +920,19 @@ export const useStore = create(
       }
     }
     set({ debugSplatBatchingEnabled: value });
+  },
+
+  /** Enables/disables computing sort distances in a worker instead of reading them from the GPU */
+  setDebugCpuDepthSortEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(DEBUG_CPU_DEPTH_SORT_KEY, String(value));
+      } catch (err) {
+        console.warn('[Store] Failed to persist debugCpuDepthSortEnabled', err);
+      }
+    }
+    set({ debugCpuDepthSortEnabled: value });
   },
 
   /** Sets Spark splat maxStdDev (rendering width) */

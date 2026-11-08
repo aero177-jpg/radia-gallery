@@ -42,6 +42,8 @@ function DebugSettings() {
   const setDebugFrameGateEnabled = useStore((state) => state.setDebugFrameGateEnabled);
   const debugSplatBatchingEnabled = useStore((state) => state.debugSplatBatchingEnabled);
   const setDebugSplatBatchingEnabled = useStore((state) => state.setDebugSplatBatchingEnabled);
+  const debugCpuDepthSortEnabled = useStore((state) => state.debugCpuDepthSortEnabled);
+  const setDebugCpuDepthSortEnabled = useStore((state) => state.setDebugCpuDepthSortEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
   const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
@@ -712,6 +714,18 @@ function DebugSettings() {
               type="checkbox"
               checked={debugSplatBatchingEnabled}
               onChange={(e) => setDebugSplatBatchingEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Sort without GPU readback (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugCpuDepthSortEnabled}
+              onChange={(e) => setDebugCpuDepthSortEnabled(e.target.checked)}
             />
             <span class="switch-track" aria-hidden="true" />
           </label>
