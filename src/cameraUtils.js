@@ -16,6 +16,7 @@ import {
   THREE,
 } from "./viewer.js";
 import { useStore } from "./store.js";
+import { HALF_TO_FLOAT } from "./halfFloat.js";
 import { startSmoothResetAnimation, cancelResetAnimation } from "./cameraAnimations.js";
 import { resize } from "./layout.js";
 import { cancelAutoOrbit, scheduleAutoOrbit } from './autoOrbit.js';
@@ -418,16 +419,28 @@ export const computeMlSharpDepthFocus = (
   const allDepths = [];
   const centerWeightedDepths = [];
   
+  // getSplat also decodes color, scale, and rotation, which costs about 5 us per call here.
+  const packedArray = useStore.getState().debugFastCameraSetupEnabled ? mesh.packedSplats.packedArray : null;
+
   for (let i = 0; i < numSplats; i += step) {
-    const { center } = mesh.packedSplats.getSplat(i);
-    const z = center.z;
+    let x;
+    let y;
+    let z;
+    if (packedArray) {
+      const xy = packedArray[i * 4 + 1];
+      x = HALF_TO_FLOAT[xy & 0xffff];
+      y = HALF_TO_FLOAT[xy >>> 16];
+      z = HALF_TO_FLOAT[packedArray[i * 4 + 2] & 0xffff];
+    } else {
+      ({ x, y, z } = mesh.packedSplats.getSplat(i).center);
+    }
     if (!Number.isFinite(z) || z <= 0) continue;
     
     allDepths.push(z);
     
     // Weight splats near image center more heavily
     // Splats at x,y near 0 are likely the subject
-    const distFromCenter = Math.sqrt(center.x * center.x + center.y * center.y);
+    const distFromCenter = Math.sqrt(x * x + y * y);
     // Normalize by depth to get angular distance from center
     const angularDist = distFromCenter / z;
     
@@ -474,6 +487,34 @@ export const computeMlSharpDepthFocus = (
 };
 
 
+// Spark's getBoundingBox unpacks every field of every splat, about 225 ms for 1.18M splats.
+const getCameraSetupBounds = (mesh) => {
+  const packedArray = useStore.getState().debugFastCameraSetupEnabled ? mesh.packedSplats?.packedArray : null;
+  const numSplats = mesh.packedSplats?.numSplats ?? 0;
+  if (!packedArray || !numSplats) return mesh.getBoundingBox();
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  for (let word = 0, end = numSplats * 4; word < end; word += 4) {
+    const xy = packedArray[word + 1];
+    const x = HALF_TO_FLOAT[xy & 0xffff];
+    const y = HALF_TO_FLOAT[xy >>> 16];
+    const z = HALF_TO_FLOAT[packedArray[word + 2] & 0xffff];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  return new THREE.Box3(new THREE.Vector3(minX, minY, minZ), new THREE.Vector3(maxX, maxY, maxZ));
+};
+
+export { getCameraSetupBounds };
+
 export const applyMetadataCamera = (mesh, cameraMetadata, resize) => {
   const store = getStoreState();
   const cvToThree = makeAxisFlipCvToGl();
@@ -501,7 +542,7 @@ export const applyMetadataCamera = (mesh, cameraMetadata, resize) => {
   camera.updateMatrixWorld(true);
 
   if (mesh?.getBoundingBox) {
-    const box = mesh.getBoundingBox();
+    const box = getCameraSetupBounds(mesh);
     const worldBox = box.clone().applyMatrix4(mesh.matrixWorld);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();

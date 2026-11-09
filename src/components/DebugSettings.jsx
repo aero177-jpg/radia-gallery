@@ -44,12 +44,12 @@ function DebugSettings() {
   const setDebugSplatBatchingEnabled = useStore((state) => state.setDebugSplatBatchingEnabled);
   const debugCpuDepthSortEnabled = useStore((state) => state.debugCpuDepthSortEnabled);
   const setDebugCpuDepthSortEnabled = useStore((state) => state.setDebugCpuDepthSortEnabled);
-  const debugMotionPixelBudgetEnabled = useStore((state) => state.debugMotionPixelBudgetEnabled);
-  const setDebugMotionPixelBudgetEnabled = useStore((state) => state.setDebugMotionPixelBudgetEnabled);
-  const debugMotionPixelBudgetMp = useStore((state) => state.debugMotionPixelBudgetMp);
-  const setDebugMotionPixelBudgetMp = useStore((state) => state.setDebugMotionPixelBudgetMp);
   const debugRareGlErrorChecksEnabled = useStore((state) => state.debugRareGlErrorChecksEnabled);
   const setDebugRareGlErrorChecksEnabled = useStore((state) => state.setDebugRareGlErrorChecksEnabled);
+  const debugFastCameraSetupEnabled = useStore((state) => state.debugFastCameraSetupEnabled);
+  const setDebugFastCameraSetupEnabled = useStore((state) => state.setDebugFastCameraSetupEnabled);
+  const debugSteppedFadesEnabled = useStore((state) => state.debugSteppedFadesEnabled);
+  const setDebugSteppedFadesEnabled = useStore((state) => state.setDebugSteppedFadesEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
   const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
@@ -750,31 +750,27 @@ function DebugSettings() {
         </div>
 
         <div class="control-row">
-          <span class="control-label">Motion pixel budget (experimental)</span>
+          <span class="control-label">Fast camera setup (experimental)</span>
           <label class="switch">
             <input
               type="checkbox"
-              checked={debugMotionPixelBudgetEnabled}
-              onChange={(e) => setDebugMotionPixelBudgetEnabled(e.target.checked)}
+              checked={debugFastCameraSetupEnabled}
+              onChange={(e) => setDebugFastCameraSetupEnabled(e.target.checked)}
             />
             <span class="switch-track" aria-hidden="true" />
           </label>
         </div>
 
         <div class="control-row">
-          <span class="control-label">Budget (MP)</span>
-          <div class="control-track">
+          <span class="control-label">Stepped fades (experimental)</span>
+          <label class="switch">
             <input
-              type="range"
-              min="0.4"
-              max="2.5"
-              step="0.1"
-              disabled={!debugMotionPixelBudgetEnabled}
-              value={debugMotionPixelBudgetMp}
-              onInput={(e) => setDebugMotionPixelBudgetMp(e.target.value)}
+              type="checkbox"
+              checked={debugSteppedFadesEnabled}
+              onChange={(e) => setDebugSteppedFadesEnabled(e.target.checked)}
             />
-            <span class="control-value">{debugMotionPixelBudgetMp.toFixed(1)}</span>
-          </div>
+            <span class="switch-track" aria-hidden="true" />
+          </label>
         </div>
 
         <div class="control-row">

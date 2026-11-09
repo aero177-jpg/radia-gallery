@@ -6,7 +6,6 @@ import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { setSplatBatching } from "./splatBatching.js";
 import { setCpuDepthSort } from "./splatCpuSort.js";
-import { getPendingPixelRatio, setMotionPixelBudget } from "./motionPixelBudget.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -601,18 +600,14 @@ export const initViewer = (viewerEl) => {
       setCpuDepthSort(spark, enabled);
       requestRender();
     });
-    const applyMotionPixelBudget = () => {
-      const state = useStore.getState();
-      setMotionPixelBudget(state.debugMotionPixelBudgetEnabled, state.debugMotionPixelBudgetMp);
-      requestRender();
-    };
-    applyMotionPixelBudget();
-    useStore.subscribe((s) => `${s.debugMotionPixelBudgetEnabled}:${s.debugMotionPixelBudgetMp}`, applyMotionPixelBudget);
     const applyGlErrorInterval = (rare) => {
       glErrorCheckIntervalMs = rare ? GL_ERROR_CHECK_INTERVAL_MS : GL_ERROR_CHECK_INTERVAL_FREQUENT_MS;
     };
     applyGlErrorInterval(useStore.getState().debugRareGlErrorChecksEnabled);
     useStore.subscribe((s) => s.debugRareGlErrorChecksEnabled, applyGlErrorInterval);
+    const applySteppedFades = (enabled) => viewerEl.classList.toggle('stepped-fades', Boolean(enabled));
+    applySteppedFades(useStore.getState().debugSteppedFadesEnabled);
+    useStore.subscribe((s) => s.debugSteppedFadesEnabled, applySteppedFades);
   }).catch(() => {});
 
   // FPS overlay
@@ -690,8 +685,6 @@ export const startRenderLoop = () => {
 
     // Always update controls for damping, but only render if needed
     const controlsNeedUpdate = controls.update();
-    const pendingPixelRatio = getPendingPixelRatio(renderer, camera, now, stereoEnabled);
-    if (pendingPixelRatio !== null) needsRender = true;
 
     if (needsRender || controlsNeedUpdate) {
       if (frameGateEnabled && !isGpuReadyForFrame(now)) {
@@ -700,7 +693,6 @@ export const startRenderLoop = () => {
         return;
       }
       try {
-        if (pendingPixelRatio !== null) renderer.setPixelRatio(pendingPixelRatio);
         if (stereoEnabled && stereoCamera) {
           renderStereo();
         } else {
