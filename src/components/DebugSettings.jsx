@@ -38,6 +38,18 @@ function DebugSettings() {
   const setDisableTransparentUi = useStore((state) => state.setDisableTransparentUi);
   const debugFpsLimitEnabled = useStore((state) => state.debugFpsLimitEnabled);
   const setDebugFpsLimitEnabled = useStore((state) => state.setDebugFpsLimitEnabled);
+  const debugFrameGateEnabled = useStore((state) => state.debugFrameGateEnabled);
+  const setDebugFrameGateEnabled = useStore((state) => state.setDebugFrameGateEnabled);
+  const debugSplatBatchingEnabled = useStore((state) => state.debugSplatBatchingEnabled);
+  const setDebugSplatBatchingEnabled = useStore((state) => state.setDebugSplatBatchingEnabled);
+  const debugCpuDepthSortEnabled = useStore((state) => state.debugCpuDepthSortEnabled);
+  const setDebugCpuDepthSortEnabled = useStore((state) => state.setDebugCpuDepthSortEnabled);
+  const debugRareGlErrorChecksEnabled = useStore((state) => state.debugRareGlErrorChecksEnabled);
+  const setDebugRareGlErrorChecksEnabled = useStore((state) => state.setDebugRareGlErrorChecksEnabled);
+  const debugFastCameraSetupEnabled = useStore((state) => state.debugFastCameraSetupEnabled);
+  const setDebugFastCameraSetupEnabled = useStore((state) => state.setDebugFastCameraSetupEnabled);
+  const debugSteppedFadesEnabled = useStore((state) => state.debugSteppedFadesEnabled);
+  const setDebugSteppedFadesEnabled = useStore((state) => state.setDebugSteppedFadesEnabled);
   const debugSparkMaxStdDev = useStore((state) => state.debugSparkMaxStdDev);
   const setDebugSparkMaxStdDev = useStore((state) => state.setDebugSparkMaxStdDev);
   const debugRuntimeLodEnabled = useStore((state) => state.debugRuntimeLodEnabled);
@@ -684,6 +696,78 @@ function DebugSettings() {
               type="checkbox"
               checked={debugFpsLimitEnabled}
               onChange={handleFpsLimitToggle}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Frame gate (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugFrameGateEnabled}
+              onChange={(e) => setDebugFrameGateEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Batched drawing (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugSplatBatchingEnabled}
+              onChange={(e) => setDebugSplatBatchingEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Sort without GPU readback (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugCpuDepthSortEnabled}
+              onChange={(e) => setDebugCpuDepthSortEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Rare GL error checks (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugRareGlErrorChecksEnabled}
+              onChange={(e) => setDebugRareGlErrorChecksEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Fast camera setup (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugFastCameraSetupEnabled}
+              onChange={(e) => setDebugFastCameraSetupEnabled(e.target.checked)}
+            />
+            <span class="switch-track" aria-hidden="true" />
+          </label>
+        </div>
+
+        <div class="control-row">
+          <span class="control-label">Stepped fades (experimental)</span>
+          <label class="switch">
+            <input
+              type="checkbox"
+              checked={debugSteppedFadesEnabled}
+              onChange={(e) => setDebugSteppedFadesEnabled(e.target.checked)}
             />
             <span class="switch-track" aria-hidden="true" />
           </label>

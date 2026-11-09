@@ -1062,7 +1062,7 @@ function Viewer({ viewerReady, dropOverlay, startEmptyOnInitialCollectionRoute =
 
   return (
     <div class={`viewer-shell ${expandedViewer ? 'is-expanded' : ''}`} ref={viewerRef}>
-      <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''} ${hideForInitialCollectionLoad && !showEmptyState ? 'initial-collection-empty' : ''} ${expandedViewer ? 'is-expanded' : ''} ${transitionSpeed === 'snappy' ? 'speed-snappy' : ''} ''}`}>
+      <div id="viewer" class={`viewer ${debugLoadingMode ? 'loading' : ''} ${showEmptyState ? 'is-empty' : ''} ${hideForInitialCollectionLoad && !showEmptyState ? 'initial-collection-empty' : ''} ${expandedViewer ? 'is-expanded' : ''} ${transitionSpeed === 'snappy' ? 'speed-snappy' : ''}`}>
         <div class="loading-overlay">
         </div>
       </div>

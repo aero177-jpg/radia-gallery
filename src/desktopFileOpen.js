@@ -1,3 +1,4 @@
+// PWA launchQueue file handler, not a Tauri leftover.
 let pendingLaunches = [];
 let launchPending = false;
 let processing = false;

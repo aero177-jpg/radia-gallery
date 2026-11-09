@@ -742,6 +742,15 @@ input[type="checkbox"]:disabled:checked {
   opacity: 0 !important;
 }
 
+/* Experimental: smooth fades make the compositor redraw every display frame, which stalls
+   the render loop on integrated GPUs. Same durations, about 20 updates per second. */
+.viewer.stepped-fades.slide-in,
+.viewer.stepped-fades.slide-out,
+.viewer.stepped-fades.slide-in canvas,
+.viewer.stepped-fades .bg-image-container {
+  transition-timing-function: steps(12, end) !important;
+}
+
 /* Background image fades with canvas during transitions */
 
 .viewer.slide-out .bg-image-container {

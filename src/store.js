@@ -74,6 +74,12 @@ const getPersistedJson = (key, fallback = null) => {
 const QUALITY_PRESET_KEY = 'qualityPreset';
 const DEBUG_SPARK_STDDEV_KEY = 'debugSparkMaxStdDev';
 const DEBUG_FPS_LIMIT_KEY = 'debugFpsLimitEnabled';
+const DEBUG_FRAME_GATE_KEY = 'debugFrameGateEnabled';
+const DEBUG_SPLAT_BATCHING_KEY = 'debugSplatBatchingEnabled';
+const DEBUG_CPU_DEPTH_SORT_KEY = 'debugCpuDepthSortEnabled';
+const DEBUG_RARE_GL_ERROR_CHECKS_KEY = 'debugRareGlErrorChecksEnabled';
+const DEBUG_FAST_CAMERA_SETUP_KEY = 'debugFastCameraSetupEnabled';
+const DEBUG_STEPPED_FADES_KEY = 'debugSteppedFadesEnabled';
 const DEBUG_RUNTIME_LOD_KEY = 'debugRuntimeLodEnabled';
 const DEBUG_SPLAT_SH_LEVEL_KEY = 'debugSplatShLevel';
 const DEBUG_LOD_SPLAT_COUNT_KEY = 'debugLodSplatCount';
@@ -302,6 +308,24 @@ const persistedQualityPreset = getPersistedString(
 );
 const persistedCustomStdDev = getPersistedNumber(DEBUG_SPARK_STDDEV_KEY, Math.sqrt(5));
 const persistedCustomFpsLimit = getPersistedBoolean(DEBUG_FPS_LIMIT_KEY, true);
+const persistedFrameGate = getPersistedBoolean(DEBUG_FRAME_GATE_KEY, true);
+const persistedSplatBatching = getPersistedBoolean(DEBUG_SPLAT_BATCHING_KEY, true);
+const persistedCpuDepthSort = getPersistedBoolean(DEBUG_CPU_DEPTH_SORT_KEY, true);
+const persistedRareGlErrorChecks = getPersistedBoolean(DEBUG_RARE_GL_ERROR_CHECKS_KEY, true);
+const persistedFastCameraSetup = getPersistedBoolean(DEBUG_FAST_CAMERA_SETUP_KEY, true);
+// Stepped fades change how fades look, so they default on only in the low-power presets.
+const STEPPED_FADE_PRESETS = new Set(['performance', 'experimental']);
+const hasExplicitSteppedFadesChoice = () => {
+  try {
+    return window.localStorage?.getItem(DEBUG_STEPPED_FADES_KEY) !== null;
+  } catch {
+    return false;
+  }
+};
+const persistedSteppedFades = getPersistedBoolean(
+  DEBUG_STEPPED_FADES_KEY,
+  STEPPED_FADE_PRESETS.has(persistedQualityPreset),
+);
 const persistedRuntimeLod = getPersistedBoolean(DEBUG_RUNTIME_LOD_KEY, false);
 const persistedSplatShLevel = getPersistedNumber(DEBUG_SPLAT_SH_LEVEL_KEY, 3);
 const persistedLodSplatCount = getPersistedNumber(DEBUG_LOD_SPLAT_COUNT_KEY, 500000);
@@ -410,7 +434,7 @@ export const useStore = create(
   metadataMissing: false,
   customMetadataAvailable: false,
   customMetadataControlsVisible: false,
-  isCustomModel: false,
+  isCustomModel: false, // full scene mode: a real scene with no SHARP intrinsics, navigated by camera-pose keyframes.
   customModelScale: 1,
   customBaseOrientation: 'y-down',
   customModelRotation: { x: 0, y: 0, z: 0 },
@@ -466,12 +490,18 @@ export const useStore = create(
   vrBaseScale: persistedUiPrefs.vrBaseScale ?? 0,
   vrResolutionScale: persistedUiPrefs.vrResolutionScale ?? 0.5,
   vrPassthroughEnabled: persistedUiPrefs.vrPassthroughEnabled ?? false,
-  fillMode: false,
+  fillMode: false, // deprecated projection flag, unrelated to full scene mode.
   
   // Debug
   debugLoadingMode: false,
   debugSettingsExpanded: false,
   debugFpsLimitEnabled: initialQuality.fpsLimit,
+  debugFrameGateEnabled: persistedFrameGate,
+  debugSplatBatchingEnabled: persistedSplatBatching,
+  debugCpuDepthSortEnabled: persistedCpuDepthSort,
+  debugRareGlErrorChecksEnabled: persistedRareGlErrorChecks,
+  debugFastCameraSetupEnabled: persistedFastCameraSetup,
+  debugSteppedFadesEnabled: persistedSteppedFades,
   debugSparkMaxStdDev: initialQuality.stdDev,
   debugRuntimeLodEnabled: persistedRuntimeLod,
   debugSplatShLevel: Math.max(0, Math.min(3, Math.round(persistedSplatShLevel))),
@@ -887,6 +917,78 @@ export const useStore = create(
     set({ debugFpsLimitEnabled: enabled });
   },
 
+  /** Enables/disables keeping at most one frame queued on the GPU */
+  setDebugFrameGateEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(DEBUG_FRAME_GATE_KEY, String(value));
+      } catch (err) {
+        console.warn('[Store] Failed to persist debugFrameGateEnabled', err);
+      }
+    }
+    set({ debugFrameGateEnabled: value });
+  },
+
+  /** Enables/disables drawing many splats per GPU instance */
+  setDebugSplatBatchingEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(DEBUG_SPLAT_BATCHING_KEY, String(value));
+      } catch (err) {
+        console.warn('[Store] Failed to persist debugSplatBatchingEnabled', err);
+      }
+    }
+    set({ debugSplatBatchingEnabled: value });
+  },
+
+  /** Enables/disables computing sort distances in a worker instead of reading them from the GPU */
+  setDebugCpuDepthSortEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem(DEBUG_CPU_DEPTH_SORT_KEY, String(value));
+      } catch (err) {
+        console.warn('[Store] Failed to persist debugCpuDepthSortEnabled', err);
+      }
+    }
+    set({ debugCpuDepthSortEnabled: value });
+  },
+
+  /** Chooses rare (4 s) or frequent (500 ms) GL error checks */
+  setDebugRareGlErrorChecksEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(DEBUG_RARE_GL_ERROR_CHECKS_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugRareGlErrorChecksEnabled', err);
+    }
+    set({ debugRareGlErrorChecksEnabled: value });
+  },
+
+  /** Enables/disables reading only splat positions during camera setup */
+  setDebugFastCameraSetupEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(DEBUG_FAST_CAMERA_SETUP_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugFastCameraSetupEnabled', err);
+    }
+    set({ debugFastCameraSetupEnabled: value });
+  },
+
+  /** Enables/disables updating transition fades in steps instead of every display frame */
+  setDebugSteppedFadesEnabled: (enabled) => {
+    const value = Boolean(enabled);
+    try {
+      window.localStorage?.setItem(DEBUG_STEPPED_FADES_KEY, String(value));
+    } catch (err) {
+      console.warn('[Store] Failed to persist debugSteppedFadesEnabled', err);
+    }
+    set({ debugSteppedFadesEnabled: value });
+  },
+
   /** Sets Spark splat maxStdDev (rendering width) */
   setDebugSparkMaxStdDev: (value) => {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -993,6 +1095,8 @@ export const useStore = create(
         qualityPreset: preset,
         debugSparkMaxStdDev: stdDev,
         debugFpsLimitEnabled: fpsLimit,
+        // Follow the preset unless the user has chosen stepped fades themselves.
+        ...(hasExplicitSteppedFadesChoice() ? {} : { debugSteppedFadesEnabled: STEPPED_FADE_PRESETS.has(preset) }),
       });
       return;
     }

@@ -270,18 +270,6 @@ export const restartContinuousIfPlaying = () => {
   startContinuousForCurrentMode();
 };
 
-/**
- * Hard-stops the slideshow and clears all saved state.
- * Call this when slideshow mode is turned off entirely (not just paused).
- */
-export const resetSlideshow = () => {
-  isPlaying = false;
-  prepareFreshSceneRestart();
-  getStoreState().setSlideshowHoldWasPlaying(false);
-
-  getStoreState().setSlideshowPlaying(false);
-};
-
 export const setLoopSceneEnabled = (enabled) => {
   const store = getStoreState();
   const nextEnabled = Boolean(enabled);

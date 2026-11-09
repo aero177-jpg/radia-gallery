@@ -19,21 +19,10 @@ import {
   clearMetadataCamera,
 } from './cameraUtils.js';
 import { updateViewerAspectRatio, resize, isNavigationLockedRef, setNavigationLocked } from './fileLoader.js';
+import { formatBytes } from './previewManager.js';
 import { setCurrentMesh, setOriginalImageAspect, requestRender, spark, scene, camera } from './viewer.js';
 
 const getStoreState = () => useStore.getState();
-
-const formatBytes = (bytes) => {
-  if (!bytes && bytes !== 0) return '-';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let i = 0;
-  let value = bytes;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i += 1;
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[i]}`;
-};
 
 let batchPreviewAborted = false;
 
